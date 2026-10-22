@@ -6,18 +6,20 @@ local M = {}
 local ns = api.nvim_create_namespace('nice-git-conflict')
 local group = api.nvim_create_augroup('NiceGitConflict', {})
 
--- Buttons drawn over each `<<<<<<<` line, in order; `col` ranges are filled in below.
+-- Pill buttons drawn over each `<<<<<<<` line; `from`/`to` (display columns) are filled in below.
 local BUTTONS = {
-  { label = ' Accept Current ', pick = 'ours' },
-  { label = ' Accept Incoming ', pick = 'theirs' },
-  { label = ' Accept Both ', pick = 'both' },
+  { label = 'Accept Current', pick = 'ours', hl = 'NiceGitPill' },
+  { label = 'Accept Incoming', pick = 'theirs', hl = 'NiceGitPillSoft' },
+  { label = 'Accept Both', pick = 'both', hl = 'NiceGitPillSoft' },
 }
+local GAP = 2
 do
-  local col = 0
-  for i, b in ipairs(BUTTONS) do
+  local col = 1 -- one cell of padding before the first pill
+  for _, b in ipairs(BUTTONS) do
     b.from = col
-    col = col + api.nvim_strwidth(b.label) + (i < #BUTTONS and 1 or 0) -- '│' separator
+    col = col + api.nvim_strwidth(b.label) + 4 -- caps and inner padding
     b.to = col
+    col = col + GAP
   end
 end
 
@@ -57,15 +59,35 @@ local function decorate()
       api.nvim_buf_set_extmark(buf, ns, l - 1, 0, { line_hl_group = group_name })
     end
   end
+  local icons = require('nice-git.theme').icons
+  local lines = api.nvim_buf_get_lines(buf, 0, -1, false)
+  -- Covers a marker line with `chunks`, padded so none of the marker text shows through.
+  local function overlay(line, chunks)
+    local w = 0
+    for _, ch in ipairs(chunks) do
+      w = w + api.nvim_strwidth(ch[1])
+    end
+    table.insert(chunks, { (' '):rep(math.max(0, api.nvim_strwidth(lines[line]) - w)), 'NiceGitConflictMarker' })
+    api.nvim_buf_set_extmark(buf, ns, line - 1, 0, { virt_text = chunks, virt_text_pos = 'overlay' })
+  end
   for _, c in ipairs(conflicts()) do
-    local virt = {}
+    local virt = { { ' ', 'NiceGitConflictMarker' } }
     for i, b in ipairs(BUTTONS) do
-      table.insert(virt, { b.label, 'NiceGitConflictButton' })
+      vim.list_extend(virt, {
+        { icons.pill_left, b.hl .. 'Edge' },
+        { ' ' .. b.label .. ' ', b.hl },
+        { icons.pill_right, b.hl .. 'Edge' },
+      })
       if i < #BUTTONS then
-        table.insert(virt, { '│', 'NiceGitConflictMarker' })
+        table.insert(virt, { (' '):rep(GAP), 'NiceGitConflictMarker' })
       end
     end
-    api.nvim_buf_set_extmark(buf, ns, c.start - 1, 0, { virt_text = virt, virt_text_pos = 'overlay' })
+    local ours = lines[c.start]:match('^<+%s*(.-)%s*$')
+    table.insert(virt, { '   Current Change' .. (ours ~= '' and ' (' .. ours .. ')' or ''), 'NiceGitConflictMarker' })
+    overlay(c.start, virt)
+    local theirs = lines[c.finish]:match('^>+%s*(.-)%s*$')
+    overlay(c.finish, { { ' Incoming Change' .. (theirs ~= '' and ' (' .. theirs .. ')' or ''), 'NiceGitConflictMarker' } })
+    overlay(c.mid, { { ('─'):rep(math.max(api.nvim_strwidth(lines[c.mid]), 20)), 'NiceGitConflictMarker' } })
     hl(c.start, c.start, 'NiceGitConflictMarker')
     hl(c.start + 1, (c.base or c.mid) - 1, 'NiceGitConflictOurs')
     if c.base then
@@ -74,10 +96,6 @@ local function decorate()
     hl(c.mid, c.mid, 'NiceGitConflictMarker')
     hl(c.mid + 1, c.finish - 1, 'NiceGitConflictTheirs')
     hl(c.finish, c.finish, 'NiceGitConflictMarker')
-    api.nvim_buf_set_extmark(buf, ns, c.mid - 1, 0, {
-      virt_text = { { ' ↑ current  ↓ incoming', 'NiceGitConflictMarker' } },
-      virt_text_pos = 'eol',
-    })
   end
 end
 
