@@ -194,12 +194,14 @@ local function build()
 
   local btn = ' ✓ Commit '
   local amend = commit.amend and ' ☑ Amend ' or ' ☐ Amend '
-  local text = ' ' .. btn .. ' ' .. amend
+  local stash = ' ⊟ Stash '
+  local text = ' ' .. btn .. ' ' .. amend .. ' ' .. stash
   local a = 1 + #btn + 1
+  local s = a + #amend + 1
   add({
     text = text,
-    hls = { { 1, 1 + #btn, 'NiceGitCommitButton' }, { a, #text, 'NiceGitButton' } },
-    buttons = { { 1, 1 + #btn, commit.commit }, { a, #text, commit.toggle_amend } },
+    hls = { { 1, 1 + #btn, 'NiceGitCommitButton' }, { a, a + #amend, 'NiceGitButton' }, { s, #text, 'NiceGitButton' } },
+    buttons = { { 1, 1 + #btn, commit.commit }, { a, a + #amend, commit.toggle_amend }, { s, #text, actions.stash } },
   })
 
   local any = false
@@ -250,6 +252,37 @@ local function build()
   end
   if not any then
     add({ text = '   No changes', hls = { { 0, 13, 'NiceGitEmpty' } } })
+  end
+
+  local stashes = st.stashes or {}
+  if #stashes > 0 then
+    local title = (M.collapsed.stashes and ' ▸ ' or ' ▾ ') .. 'STASHES'
+    add({
+      text = title,
+      hls = { { 0, #title, 'NiceGitSection' } },
+      virt = { { ' ' .. #stashes .. ' ', 'NiceGitCount' } },
+      click = function()
+        M.collapsed.stashes = not M.collapsed.stashes
+        M.render()
+      end,
+    })
+    if not M.collapsed.stashes then
+      for _, stash in ipairs(stashes) do
+        local line = '   ≡ ' .. stash.message
+        add({
+          text = line,
+          stash = stash,
+          hls = { { 3, 6, 'NiceGitPath' } },
+          right = {
+            { ' ↓ ', 'NiceGitButton', function() actions.stash_apply(stash) end },
+            { ' ✕ ', 'NiceGitButton', function() actions.stash_drop(stash) end },
+          },
+          click = function()
+            actions.show_stash(stash)
+          end,
+        })
+      end
+    end
   end
   return rows
 end

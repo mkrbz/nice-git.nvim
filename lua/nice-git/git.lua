@@ -87,6 +87,18 @@ function M.status(root, cb)
   end)
 end
 
+---@param cb fun(stashes: { ref: string, message: string }[])
+function M.stashes(root, cb)
+  M.run(root, { 'stash', 'list', '--format=%gd%x00%s' }, function(ok, out)
+    local list = {}
+    for _, line in ipairs(ok and vim.split(out, '\n', { trimempty = true }) or {}) do
+      local ref, message = unpack(vim.split(line, '\0', { plain = true }))
+      table.insert(list, { ref = ref, message = message })
+    end
+    cb(list)
+  end)
+end
+
 local function paths(entries)
   local list = {}
   for _, e in ipairs(entries) do

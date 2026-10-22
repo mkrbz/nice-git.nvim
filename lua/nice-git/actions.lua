@@ -104,6 +104,49 @@ function M.skip()
   end
 end
 
+---Stashes all changes, untracked files included, under an optional message.
+function M.stash()
+  vim.ui.input({ prompt = 'Stash message (optional): ' }, function(msg)
+    if msg == nil then
+      return
+    end
+    local args = { 'stash', 'push', '--include-untracked' }
+    if vim.trim(msg) ~= '' then
+      vim.list_extend(args, { '--message', vim.trim(msg) })
+    end
+    M.run(args)
+  end)
+end
+
+function M.stash_apply(stash)
+  M.run({ 'stash', 'apply', stash.ref })
+end
+
+function M.stash_pop(stash)
+  M.run({ 'stash', 'pop', stash.ref })
+end
+
+function M.stash_drop(stash)
+  if vim.fn.confirm('Drop ' .. stash.ref .. ' (' .. stash.message .. ')?', '&Drop\n&Cancel', 2) == 1 then
+    M.run({ 'stash', 'drop', stash.ref })
+  end
+end
+
+---Shows a stash's patch with Apply / Pop / Drop buttons.
+function M.show_stash(stash)
+  local args = { 'stash', 'show', '--patch', '--include-untracked', stash.ref }
+  git.run(state().root, args, function(ok, out, err)
+    if not ok then
+      return notify(vim.trim(err), vim.log.levels.ERROR)
+    end
+    require('nice-git.diff').show_page(stash.ref, vim.split(out, '\n', { plain = true }), 'diff', stash.ref .. '  ' .. stash.message, {
+      { '↓ Apply', function() M.stash_apply(stash) end },
+      { '⇣ Pop', function() M.stash_pop(stash) end },
+      { '✕ Drop', function() M.stash_drop(stash) end },
+    })
+  end)
+end
+
 local NEW = { label = '+ Create new branch…' }
 
 ---Picks a local or remote branch to switch to, or creates a new one.

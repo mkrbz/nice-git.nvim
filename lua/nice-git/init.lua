@@ -45,20 +45,29 @@ function M.refresh()
     return
   end
   busy = true
-  git.status(M.state.root, function(status, err)
+  local root = M.state.root
+  local function done()
     busy = false
-    if status then
-      status.operation = operation(M.state.gitdir)
-      M.state.status = status
-      require('nice-git.sidebar').render()
-      require('nice-git.diff').refresh()
-    else
-      vim.notify('nice-git: ' .. err, vim.log.levels.ERROR)
-    end
     if again then
       again = false
       M.refresh()
     end
+  end
+  git.status(root, function(status, err)
+    if not status then
+      vim.notify('nice-git: ' .. err, vim.log.levels.ERROR)
+      return done()
+    end
+    status.operation = operation(M.state.gitdir)
+    git.stashes(root, function(stashes)
+      status.stashes = stashes
+      if root == M.state.root then
+        M.state.status = status
+        require('nice-git.sidebar').render()
+        require('nice-git.diff').refresh()
+      end
+      done()
+    end)
   end)
 end
 
