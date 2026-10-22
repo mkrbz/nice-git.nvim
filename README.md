@@ -13,33 +13,54 @@ A VSCode-style, mouse-friendly git interface for Neovim. Everything is clickable
 
 ## Install (private repository)
 
-The repo is private, so your plugin manager has to reach it with your own credentials.
+The repo is private, so whatever installs it needs your own access to it.
 Replace `<you>` with the GitHub account or org that owns the repo.
 
-**From a local clone** (simplest; no network auth involved):
+### vim.pack (built-in)
+
+**From GitHub**, in `init.lua`:
 
 ```lua
--- lazy.nvim
-{ dir = '~/dev/nice-git.nvim', name = 'nice-git.nvim', cmd = 'NiceGit', opts = {} }
+vim.pack.add({ 'git@github.com:<you>/nice-git.nvim' })
+```
 
--- or without a plugin manager
+SSH needs a key with access to the repo. To use HTTPS instead
+(`'https://github.com/<you>/nice-git.nvim'`), git needs a credential helper for github.com,
+for example after running `gh auth setup-git`. Check access first with
+`git ls-remote git@github.com:<you>/nice-git.nvim`.
+
+**From a local clone:**
+
+```lua
+vim.pack.add({ { src = 'file://' .. vim.fn.expand('~/dev/nice-git.nvim'), name = 'nice-git.nvim' } })
+```
+
+vim.pack clones the repo into its own directory, so it only sees **committed** changes,
+and only after `:packupdate`. To try uncommitted edits while working on the plugin,
+skip vim.pack and put the working copy on the runtimepath instead:
+
+```lua
 vim.opt.runtimepath:prepend(vim.fn.expand('~/dev/nice-git.nvim'))
 ```
 
-**From GitHub over SSH** (needs an SSH key that has access to the repo):
+Both GitHub and local installs follow the default branch, since there are no release tags yet.
+Pin a branch or commit with `version = '<branch or hash>'` in the spec.
+
+To update, run `:packupdate nice-git.nvim`, review the changes, then `:write` to apply them.
+To remove, run `:packdel nice-git.nvim`.
+No lazy-loading setup is needed: at startup the plugin only defines the `:NiceGit` command.
+
+### lazy.nvim
 
 ```lua
--- lazy.nvim
 { url = 'git@github.com:<you>/nice-git.nvim.git', name = 'nice-git.nvim', cmd = 'NiceGit', opts = {} }
-
--- built-in vim.pack
-vim.pack.add({ { src = 'git@github.com:<you>/nice-git.nvim' } })
+-- or a local clone (uses the working copy, uncommitted edits included)
+{ dir = '~/dev/nice-git.nvim', name = 'nice-git.nvim', cmd = 'NiceGit', opts = {} }
 ```
 
-HTTPS URLs also work if git has a credential helper for github.com (for example after `gh auth setup-git`).
-Check access first with `git ls-remote git@github.com:<you>/nice-git.nvim.git`.
+### Configuration
 
-`setup()` is optional:
+`setup()` is optional. With vim.pack, call it after `vim.pack.add()`:
 
 ```lua
 require('nice-git').setup({
