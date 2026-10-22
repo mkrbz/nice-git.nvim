@@ -260,8 +260,13 @@ function M.clickable(buf, h)
   end
 
   local function on_release()
-    if vim.fn.mode() == 'i' then
+    local mode = vim.fn.mode()
+    if mode == 'i' then
       vim.cmd.stopinsert()
+    elseif mode:match('^[vV\22]') then
+      -- A quick click after a click elsewhere counts as a double-click, whose default (select a
+      -- word) already started Visual mode in this buffer.
+      vim.cmd('normal! ' .. vim.keycode('<Esc>'))
     end
     local pos = vim.fn.getmousepos()
     local d = drag
@@ -288,7 +293,7 @@ function M.clickable(buf, h)
   for _, n in ipairs({ '', '2-', '3-', '4-' }) do
     map('n', '<' .. n .. 'LeftMouse>', on_mouse, true)
     map('n', '<' .. n .. 'LeftDrag>', on_drag, true)
-    map({ 'n', 'i' }, '<' .. n .. 'LeftRelease>', on_release)
+    map({ 'n', 'i', 'x' }, '<' .. n .. 'LeftRelease>', on_release)
   end
   if h.right_click then
     map('n', '<RightMouse>', function()

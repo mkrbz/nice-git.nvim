@@ -292,6 +292,9 @@ function M.style_window(win, kind)
     wo.number, wo.relativenumber, wo.spell, wo.list = false, false, false, false
     wo.signcolumn, wo.foldcolumn, wo.statuscolumn = 'no', '0', ''
   end
+  if kind == 'panel' then
+    wo.statusline = ' ' -- with 'laststatus' 2 every window has one; keep it a blank strip
+  end
   vim.w[win].nice_git_cursorless = CURSORLESS[kind] or nil
 end
 
