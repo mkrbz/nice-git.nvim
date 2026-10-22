@@ -67,6 +67,7 @@ No lazy-loading setup is needed: at startup the plugin only defines the `:NiceGi
 ```lua
 require('nice-git').setup({
   width = 40,          -- panel width
+  position = 'right',  -- or 'left'
   debounce = 100,      -- ms to wait after file changes before refreshing
   diff_mode = 'split', -- or 'inline'
   native_ui = false,   -- true: use vim.notify / vim.ui.select / vim.ui.input (e.g. with telescope or snacks)

@@ -13,6 +13,7 @@ Tick each box when it behaves as described. Anything that looks off is worth a n
 - [ ] No `~` lines, no visible cursor in the panel, no stray statusline text between the header and the list
 - [ ] Colors fit your colorscheme; switching colorscheme or `background` (light/dark) updates them
 - [ ] Panel width (40) is comfortable; resizing it by dragging its border keeps the Commit button full width
+- [ ] The panel opens on the right; with `setup({ position = 'left' })` it opens on the left, in the diff tab too
 
 ## Hover and mouse
 - [ ] Moving the mouse over a file row highlights it and shows its open / discard / stage icons

@@ -1,5 +1,5 @@
--- Source Control panel: a left column of two stacked windows. The header (title bar, commit box,
--- Commit button, branch/sync row) has a fixed size; the list below scrolls and holds the sections.
+-- Source Control panel: a full-height column (right by default) of two stacked windows. The header
+-- (title bar, commit box, Commit button, branch/sync row) has a fixed size; the list below scrolls.
 local api = vim.api
 local git = require('nice-git.git')
 local theme = require('nice-git.theme')
@@ -910,12 +910,15 @@ local function style(win)
   wo.wrap, wo.winfixwidth, wo.winfixbuf = false, true, true
 end
 
----Opens the panel as a full-height left column in the current tab and returns the list window.
+---Opens the panel as a full-height column (right or left, per config) in the current tab and
+---returns the list window.
 function M.open_win()
   ensure_bufs()
   local list = M.win_in_tab()
   if not list then
-    list = api.nvim_open_win(M.buf, true, { split = 'left', win = -1, width = require('nice-git').config.width })
+    local config = require('nice-git').config
+    local side = config.position == 'left' and 'left' or 'right'
+    list = api.nvim_open_win(M.buf, true, { split = side, win = -1, width = config.width })
     style(list)
     vim.wo[list].cursorline = true
   end

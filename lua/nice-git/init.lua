@@ -5,6 +5,7 @@ local M = {}
 
 M.config = {
   width = 40,
+  position = 'right', -- or 'left'
   debounce = 100,
   diff_mode = 'split', -- or 'inline'
   native_ui = false, -- true: use vim.notify / vim.ui.select / vim.ui.input instead of nice-git's floats
