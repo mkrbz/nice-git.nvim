@@ -13,16 +13,7 @@ local UNCOMMITTED = ('0'):rep(40)
 -- buf -> { lines = { [line] = sha }, commits = { [sha] = {author, time, summary} }, tick }
 local cache = {}
 
-local function relative(time)
-  local d = os.time() - time
-  for _, u in ipairs({ { 31536000, 'year' }, { 2592000, 'month' }, { 604800, 'week' }, { 86400, 'day' }, { 3600, 'hour' }, { 60, 'minute' } }) do
-    if d >= u[1] then
-      local n = math.floor(d / u[1])
-      return n .. ' ' .. u[2] .. (n > 1 and 's' or '') .. ' ago'
-    end
-  end
-  return 'just now'
-end
+local relative = require('nice-git.ui').ago
 
 local function parse(out)
   local lines, commits, sha = {}, {}, nil
@@ -163,15 +154,23 @@ local function render_panel()
       shas[l] = sha
       local c = sha and data.commits[sha] or {}
       if sha == prev then
-        lines[l] = '  │'
-        hls[l] = { 0, #lines[l], 'NiceGitPath' }
+        lines[l] = '         │'
+        hls[l] = { { 0, #lines[l], 'NiceGitDim' } }
       elseif sha == UNCOMMITTED then
         lines[l] = 'Uncommitted'
-        hls[l] = { 0, #lines[l], 'NiceGitModified' }
+        hls[l] = { { 0, #lines[l], 'NiceGitModified' } }
       else
+        -- Columns: hash, author (fixed width), age; changes from the last week stand out.
         local short = (sha or '?'):sub(1, 7)
-        lines[l] = ('%s %s · %s'):format(short, c.author or '?', c.time and relative(c.time) or '?')
-        hls[l] = { 0, #short, 'NiceGitHash' }
+        local author = vim.fn.strcharpart(c.author or '?', 0, 14)
+        author = author .. (' '):rep(15 - api.nvim_strwidth(author))
+        local age = c.time and relative(c.time) or '?'
+        lines[l] = short .. '  ' .. author .. age
+        local recent = c.time and os.time() - c.time < 7 * 86400
+        hls[l] = {
+          { 0, #short, 'NiceGitAccent' },
+          { #short + 2 + #author, #lines[l], recent and 'NiceGitModified' or 'NiceGitDim' },
+        }
       end
       prev = sha
     end
@@ -180,8 +179,10 @@ local function render_panel()
     api.nvim_buf_set_lines(panel.buf, 0, -1, false, lines)
     vim.bo[panel.buf].modifiable = false
     api.nvim_buf_clear_namespace(panel.buf, ns, 0, -1)
-    for l, h in pairs(hls) do
-      api.nvim_buf_set_extmark(panel.buf, ns, l - 1, h[1], { end_col = h[2], hl_group = h[3] })
+    for l, list in pairs(hls) do
+      for _, h in ipairs(list) do
+        api.nvim_buf_set_extmark(panel.buf, ns, l - 1, h[1], { end_col = h[2], hl_group = h[3] })
+      end
     end
     if api.nvim_win_is_valid(panel.win) and api.nvim_win_is_valid(panel.src_win) then
       api.nvim_win_call(panel.src_win, function()
