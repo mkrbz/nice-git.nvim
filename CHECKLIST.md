@@ -1,92 +1,104 @@
 # Manual check: nice-git.nvim v1
 
 Each item was tested headlessly with simulated input. These checks cover what that can't:
-the look, a real terminal's mouse, and your own config and plugins.
+the look in your terminal and font, a real mouse, and your own config and plugins.
 
 Setup: install from your local clone (see README), open a throwaway repo, and run `:NiceGit`.
 Tick each box when it behaves as described. Anything that looks off is worth a note.
 
-## Look and feel
-- [ ] Panel on the left: commit box on top, file list below, "SOURCE CONTROL · <repo>" title
-- [ ] Colors look right in your colorscheme (status letters, section titles, buttons)
-- [ ] File icons appear if you use nvim-web-devicons/mini.icons; otherwise a clean `•`
-- [ ] Buttons at the right edge line up and don't cover long file names too badly
-- [ ] Resizing the panel by dragging its border works and the buttons stay at the right edge
+## Look
+- [ ] Icons render as icons everywhere (panel, toolbar, menus, toasts). A wrong or missing glyph means a codepoint to fix in `lua/nice-git/theme.lua`
+- [ ] Buttons look like rounded pills (the half-circle caps line up with the colored part)
+- [ ] The panel has its own slightly different background; section titles are full-width bands with a count badge
+- [ ] No `~` lines, no visible cursor in the panel, no stray statusline text between the header and the list
+- [ ] Colors fit your colorscheme; switching colorscheme or `background` (light/dark) updates them
+- [ ] Panel width (40) is comfortable; resizing it by dragging its border keeps the Commit button full width
 
-## Panel and staging (1)
-- [ ] Single click on `+` / `−` stages / unstages, even when another window had focus
+## Hover and mouse
+- [ ] Moving the mouse over a file row highlights it and shows its open / discard / stage icons
+- [ ] Resting on an icon for a moment shows a tooltip ("Stage", "Discard Changes"…)
+- [ ] Leaving the panel hides the icons; after closing the panel, `:set mousemoveevent?` is back to what you had
+- [ ] Single clicks work even when another window had focus; fast repeated clicks (stage several files) each register
+- [ ] Clicking Stage and then quickly clicking Commit doesn't leave you in Visual mode
 - [ ] Dragging a file from Changes to Staged (and back) works; the target section highlights while dragging
-- [ ] Fast repeated clicks (stage several files quickly) each register
-- [ ] `↺` on a tracked file asks, then restores it; on an untracked file it asks, then deletes it
-- [ ] Editing a file in another window and saving updates the panel within a moment
-- [ ] Changes made outside Neovim (e.g. `git add` in a shell) show up when you come back
+- [ ] Right-click a file: menu opens at the pointer; pressing `m` instead opens it at the row
 
-## Commit box (1)
-- [ ] Typing a message and clicking **Commit** commits; the box clears
+## Panel and commit
+- [ ] Typing a message in the bordered box and clicking **Commit** commits; the box clears and shrinks back
+- [ ] A long message makes the box grow (up to 5 lines) and the button moves down with it
 - [ ] `<C-CR>` commits from insert mode (if your terminal sends it; `<C-s>` otherwise)
-- [ ] **Amend** prefills the last message; committing amends instead of adding a commit
+- [ ] Commit `▾` menu: Commit (Amend), Commit All, Edit Last Commit Message, Stash All Changes each work
 - [ ] With nothing staged, Commit offers to stage all tracked changes
+- [ ] Discard on a tracked file asks, then restores it; on an untracked file it asks, then deletes it
+- [ ] Saving a file in another window, or running `git add` in a shell, updates the panel within a moment
 
-## Diff view (2, 3)
-- [ ] Clicking a file opens a new tab with the whole file side by side, cursor on the first change
-- [ ] You can edit the right side (working file) and the diff updates as you type
-- [ ] **Inline** toolbar button: one pane, removed lines red above, added lines green; editing updates live
-- [ ] `]c` / `[c` and the `↑` / `↓` buttons jump between changes in both modes
-- [ ] **Stage hunk** stages only the change under the cursor (check with `git diff --cached`)
-- [ ] **Discard hunk** reverts just that change and saves the file
-- [ ] Opening a file from Staged shows HEAD ↔ Index with **Unstage hunk**
+## Toasts
+- [ ] Commit / push / errors show a small message bottom right that disappears by itself
+- [ ] Clicking a toast dismisses it; errors stay a bit longer
+
+## Diff view
+- [ ] Clicking a file opens a tab with the whole file side by side, cursor on the first change
+- [ ] Removed lines leave a hatched gap on the other side; colored bars in the sign column mark changes
+- [ ] Scrolling either pane with the mouse wheel keeps both panes aligned, also while the panel has focus
+- [ ] You can edit the right side and the diff (and the "n changes" count) updates as you type
+- [ ] **Split | Inline** switch: inline shows removed lines in red with syntax colors, changed words stronger
+- [ ] Toolbar buttons stay visible in a narrow window (the file label shortens first)
+- [ ] `]c` / `[c` and the arrow icons jump between changes in both modes
+- [ ] **Stage** stages only the change under the cursor (check with `git diff --cached`); **Discard** reverts and saves it
+- [ ] Opening a file from Staged shows HEAD ↔ Index with **Unstage**
 - [ ] Closing the diff tab leaves no leftover keymaps/highlights in the file
 
-## Sync and branches (4, 5)
-- [ ] `⟳` fetch, `↓` pull, `↑` push work against your real remote (SSH key / credential helper)
-- [ ] Header shows ↑/↓ counts and "push…" etc. while running
+## Sync and branches
+- [ ] Fetch, pull and push icons work against your real remote (SSH key / credential helper)
+- [ ] While one runs, the branch row shows a spinner; ahead/behind counts update after
 - [ ] Pushing a new branch publishes it with an upstream
 - [ ] Clicking the branch name lists branches; switching, creating, and checking out a remote-only branch work
-- [ ] A failing remote op (e.g. no network) shows git's error instead of hanging
+- [ ] A failing remote op (e.g. no network) shows git's error in a toast instead of hanging
 
-## Merge conflicts (6)
-- [ ] During a merge the panel shows "⚠ MERGE" with Continue / Abort
-- [ ] Clicking a conflicted file (`!`) opens it with highlighted regions and **Accept Current │ Accept Incoming │ Accept Both** over each `<<<<<<<` line
-- [ ] Those buttons work with a mouse, also with line numbers enabled
-- [ ] `co` / `ct` / `cb` / `c0` resolve the conflict under the cursor
-- [ ] **Mark resolved** saves and stages the file; **Continue** finishes the merge
-- [ ] Rebase with a conflict shows "⚠ REBASE" with Continue / Skip / Abort
+## Merge conflicts
+- [ ] During a merge the header shows MERGE with Continue / Abort pills
+- [ ] A conflicted file (`!`) opens with highlighted regions and **Accept Current / Accept Incoming / Accept Both** pills on the first marker line, "Incoming Change" on the last
+- [ ] The pills work with a mouse, also with line numbers enabled; `co` / `ct` / `cb` / `c0` work from the keyboard
+- [ ] **Mark Resolved** saves and stages the file; **Continue** finishes the merge
+- [ ] Rebase with a conflict shows REBASE with Continue / Skip / Abort
 
-## Stash (7)
-- [ ] **Stash** asks for an optional message and stashes everything (including untracked)
+## Stash
+- [ ] Stash All Changes (Commit `▾` or title bar menu) asks for an optional message and stashes everything, untracked included
 - [ ] STASHES section appears; clicking a stash shows its patch with Apply / Pop / Drop buttons
-- [ ] Row buttons `↓` (apply) and `✕` (drop, asks first) work
+- [ ] Row icons apply and drop (drop asks first)
 
-## History (8)
-- [ ] `☰` / `l` / `:NiceGit log` opens the graph in its own tab, with branch lines in color
-- [ ] Clicking a commit lists its files; clicking a file opens that commit's diff
+## History
+- [ ] The history icon, `l`, or `:NiceGit log` opens the graph in its own tab
+- [ ] Each line of history has its own color; merges and branch-offs join with rounded corners; HEAD, branches, tags and remotes are labels
+- [ ] Rows highlight under the mouse; clicking a commit lists its files; clicking a file opens that commit's diff
 - [ ] Right-click a commit opens the menu (Show commit, Copy hash, Interactive rebase)
 - [ ] **All branches** toggle and **Load more** at the bottom work
 - [ ] Committing while the log is visible adds the new commit to it
 
-## Blame (9)
+## Blame
 - [ ] `:NiceGit blame_line` shows "author, time ago · summary" at the end of the cursor line and follows the cursor
 - [ ] Unsaved new lines show "Uncommitted changes"
-- [ ] `:NiceGit blame` opens a side panel that scrolls together with the file
+- [ ] `:NiceGit blame` opens a side panel in columns (hash, author, age; last week's changes stand out) that scrolls with the file
 - [ ] Clicking a blame line shows that commit; toggling again closes the panel cleanly
 
-## Interactive rebase (10)
-- [ ] Log → right-click → **Interactive rebase from here…** opens a centered float
-- [ ] **Dragging rows with a real mouse reorders them.** This is the one mouse path the tests couldn't drive, because headless Neovim doesn't route mouse input to floats.
-- [ ] Clicking the `[pick]` badge cycles actions; reword asks for the new message
-- [ ] **Start** runs it; the result in the log matches the plan (reorder, drop, squash, reword)
+## Interactive rebase
+- [ ] Log → right-click → **Interactive rebase from here…** opens a centered rounded window
+- [ ] **Dragging rows with a real mouse reorders them.** This is the one mouse path the tests couldn't drive, because headless Neovim doesn't route the mouse to floating windows
+- [ ] Clicking an action pill cycles it; reword asks for the new message
+- [ ] **Start Rebase** runs it; the result in the log matches the plan (reorder, drop, squash, reword)
 
-## Worktrees and submodules (11)
-- [ ] WORKTREES (collapsed by default) lists worktrees; `+` creates one for a new or existing branch
-- [ ] Clicking a worktree switches the panel to it (tab-local `:tcd`); `✕` removes one
-- [ ] In a repo with submodules: SUBMODULES lists them, `⟳` updates, clicking enters one, "↖ Parent repository" returns
+## Worktrees and submodules
+- [ ] WORKTREES (collapsed by default) lists worktrees; its `+` creates one for a new or existing branch
+- [ ] Clicking a worktree switches the panel to it (tab-local `:tcd`); the trash icon removes one
+- [ ] In a repo with submodules: SUBMODULES lists them, the refresh icon updates one, clicking enters one, "Parent repository" in the header returns
 
-## Pull requests (12)
+## Pull requests
 - [ ] With `gh` logged in, expanding PULL REQUESTS lists open PRs (nothing loads until you expand)
 - [ ] Clicking a PR offers Show diff / Check out / Open in browser, and each works
-- [ ] `↗` opens the PR in the browser; `+` opens the create page for the pushed branch
+- [ ] The external-link icon opens the PR in the browser; the section's create icon opens the new-PR page for the pushed branch
 - [ ] Logged out or not a GitHub repo: a readable error appears in the section
 
 ## Compatibility
 - [ ] Works with your usual config and plugins loaded (no keymap clashes you care about, e.g. `<leader>hs`/`<leader>hr`, `co`/`ct`/`cb` in conflict files)
+- [ ] With `setup({ native_ui = true })`, menus and prompts use your `vim.ui` provider and messages use `vim.notify`
 - [ ] Startup cost: nothing loads until `:NiceGit` is used

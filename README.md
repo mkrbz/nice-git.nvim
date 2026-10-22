@@ -6,8 +6,10 @@ A VSCode-style, mouse-friendly git interface for Neovim. Everything is clickable
 
 - Neovim 0.13+
 - git 2.32+
-- Optional: a Nerd Font plus [nvim-web-devicons](https://github.com/nvim-tree/nvim-web-devicons)
-  or [mini.icons](https://github.com/echasnovski/mini.icons) for file icons
+- A [Nerd Font](https://www.nerdfonts.com) (v3+) in your terminal, for the icons and rounded buttons
+- `termguicolors` on (the default in most terminals), so colors can be derived from your colorscheme
+- Optional: [nvim-web-devicons](https://github.com/nvim-tree/nvim-web-devicons)
+  or [mini.icons](https://github.com/echasnovski/mini.icons) for colored file icons
 - Optional: [GitHub CLI](https://cli.github.com) (`gh`, logged in with `gh auth login`) for pull requests
 - `set mouse=a` (the Neovim default) for mouse support
 
@@ -64,11 +66,18 @@ No lazy-loading setup is needed: at startup the plugin only defines the `:NiceGi
 
 ```lua
 require('nice-git').setup({
-  width = 35,          -- panel width
+  width = 40,          -- panel width
   debounce = 100,      -- ms to wait after file changes before refreshing
   diff_mode = 'split', -- or 'inline'
+  native_ui = false,   -- true: use vim.notify / vim.ui.select / vim.ui.input (e.g. with telescope or snacks)
+  icons = {},          -- override any icon, e.g. { stash = '' }; see lua/nice-git/theme.lua
 })
 ```
+
+Colors come from your colorscheme and follow it when it changes. To restyle a part, override its
+`NiceGit*` highlight group, for example `vim.api.nvim_set_hl(0, 'NiceGitPill', { fg = '#000000', bg = '#7aa2f7' })`.
+
+While the panel is visible, `mousemoveevent` is switched on (and restored when it closes) so rows can react to hover.
 
 ## Commands
 
@@ -81,19 +90,24 @@ require('nice-git').setup({
 
 ## Panel
 
-The commit message box is at the top, with the file list below it.
+The header holds the commit message box, a **Commit** button (its `▾` opens Commit (Amend), Commit All,
+Edit Last Commit Message and Stash All Changes), and the branch with fetch, pull and push icons. The title bar
+has icons for history, refresh and a menu with more actions. Below it, changes are grouped in sections.
+Hover a file (or move the cursor to it) to see its buttons; right-click it for a menu.
 
 | Mouse | Key | Action |
 |---|---|---|
 | click branch name | `b` | switch, create, or track a branch |
-| `☰` / `⟳` / `↓` / `↑` | `l` / `f` / `p` / `P` | history / fetch / pull / push |
-| Commit / Amend / Stash | `c` (focus message box) | commit, toggle amend, stash all |
-| | `<C-CR>` or `<C-s>` in message box | commit |
-| click file | `<CR>` | open full-file diff (conflicted files open the conflict view) |
+| fetch / pull / push icons | `f` / `p` / `P` | sync with the remote |
+| history icon (title bar) | `l` | commit graph |
+| Commit | `c` (focus message box), then `<C-CR>` or `<C-s>` | commit |
+| click file | `<CR>` | open its full-file diff (conflicted files open the conflict view) |
+| open-file icon | `o` | open the file itself |
+| stage / unstage icon | `-` | stage / unstage the file, or the whole section on its title |
+| discard icon | `x` | discard changes (deletes untracked files) |
+| drag a file between sections | | stage / unstage |
+| right-click | `m` | context menu |
 | click section title | `<CR>` | collapse / expand |
-| `+` / `−` | `-` | stage / unstage file or whole section |
-| `↺` | `x` | discard changes (deletes untracked files) |
-| drag file between sections | | stage / unstage |
 | Continue / Skip / Abort | | finish an in-progress merge, rebase, cherry-pick or revert |
 | | `R` / `q` | refresh / close |
 
@@ -101,24 +115,26 @@ The panel also has sections for worktrees, submodules, pull requests and stashes
 
 ## Diff view
 
-The diff always shows the whole file. The toolbar switches between **side by side** (old version on the left, read-only)
-and **inline** (removed lines appear in red above the line that replaced them). The working-tree side is your real buffer,
+The diff always shows the whole file. The toolbar's **Split | Inline** switch picks between side by side (old version on the left,
+read-only) and inline (removed lines shown in red, with their syntax colors, above the lines that replaced them; changed words
+are highlighted). Colored bars in the sign column mark every change. The working-tree side is your real buffer,
 so you can edit it directly and the diff updates as you type.
 
 | Toolbar | Key | |
 |---|---|---|
-| `↑` / `↓` | `[c` / `]c` | previous / next change |
-| Stage hunk / Unstage hunk | `<leader>hs` | stage or unstage the change under the cursor |
-| Discard hunk | `<leader>hr` | revert the change under the cursor |
+| `↑` / `↓` icons | `[c` / `]c` | previous / next change |
+| Stage / Unstage | `<leader>hs` | stage or unstage the change under the cursor |
+| Discard | `<leader>hr` | revert the change under the cursor |
 
-**Conflicts:** click **Accept Current / Incoming / Both** on the `<<<<<<<` line, or press `co` / `ct` / `cb` / `c0`
-(the last one keeps neither side). Then click **Mark resolved**.
+**Conflicts:** click **Accept Current / Accept Incoming / Accept Both** on the conflict's first line, or press `co` / `ct` / `cb` / `c0`
+(the last one keeps neither side). Then click **Mark Resolved**.
 
 ## History
 
-Click a commit to expand its files, and click a file to diff it. Right-click (or `m`) opens a menu with Show commit,
-Copy hash and **Interactive rebase from here…**. In the rebase planner, drag rows to reorder them, click the action badge
-(or press `p`/`r`/`e`/`s`/`f`/`d`) to change it, then click **Start**.
+The graph draws each line of history in its own color, with branches, tags and remotes as labels. Click a commit to expand
+its files, and click a file to diff it. Right-click (or `m`) opens a menu with Show commit, Copy hash and
+**Interactive rebase from here…**. In the rebase planner, drag rows to reorder them, click an action (or press
+`p`/`r`/`e`/`s`/`f`/`d`) to change it, then click **Start Rebase**.
 
 ## Notes
 
