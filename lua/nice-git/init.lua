@@ -3,7 +3,11 @@ local git = require('nice-git.git')
 
 local M = {}
 
-M.config = { width = 35, debounce = 100 }
+M.config = {
+  width = 35,
+  debounce = 100,
+  diff_mode = 'split', -- or 'inline'
+}
 
 ---Shared state: repo paths and the last parsed status.
 M.state = {}

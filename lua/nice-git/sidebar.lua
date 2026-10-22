@@ -38,6 +38,11 @@ local HIGHLIGHTS = {
   NiceGitDeleted = 'Removed',
   NiceGitConflict = 'DiagnosticError',
   NiceGitDropTarget = 'Visual',
+  NiceGitInlineAdd = 'DiffAdd',
+  NiceGitInlineDelete = 'DiffDelete',
+  NiceGitToolbar = 'WinBar',
+  NiceGitToolbarTitle = 'WinBar',
+  NiceGitToolbarButton = 'TabLine',
 }
 
 function M.set_highlights()
