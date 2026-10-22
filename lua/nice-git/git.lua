@@ -9,8 +9,9 @@ function M.run(root, args, cb, opts)
   opts = opts or {}
   -- --no-optional-locks keeps `git status` from rewriting the index, which would retrigger our watcher.
   local cmd = vim.list_extend({ 'git', '-C', root, '--no-optional-locks' }, args)
-  -- Never wait on a terminal prompt: there is no terminal, credentials come from helpers/agents.
-  local env = vim.tbl_extend('force', { GIT_TERMINAL_PROMPT = '0' }, opts.env or {})
+  -- Never wait on a terminal prompt or an editor: there is no terminal, credentials come from
+  -- helpers/agents, and messages are passed explicitly (merges keep git's default message).
+  local env = vim.tbl_extend('force', { GIT_TERMINAL_PROMPT = '0', GIT_EDITOR = 'true' }, opts.env or {})
   vim.system(cmd, { text = true, stdin = opts.stdin, env = env }, function(res)
     vim.schedule(function()
       cb(res.code == 0, res.stdout or '', res.stderr or '')
@@ -53,6 +54,8 @@ function M.status(root, cb)
           s.branch = val
         elseif key == 'branch.oid' then
           s.has_head = val ~= '(initial)'
+        elseif key == 'branch.upstream' then
+          s.upstream = val
         elseif key == 'branch.ab' then
           local a, b = val:match('^%+(%d+) %-(%d+)$')
           s.ahead, s.behind = tonumber(a), tonumber(b)
