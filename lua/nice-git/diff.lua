@@ -126,6 +126,16 @@ end
 local function set_toolbars()
   local path = cur.row.entry.path
   local deleted = cur.row.entry.status == 'D'
+  if cur.mode == 'conflict' then
+    vim.wo[cur.rwin].winbar = title(path, true)
+      .. '%='
+      .. button(2, '↑')
+      .. button(3, '↓')
+      .. button(6, 'Accept all current')
+      .. button(7, 'Accept all incoming')
+      .. button(8, '✓ Mark resolved')
+    return
+  end
   local bar = button(1, cur.mode == 'split' and '≡ Inline' or '⇆ Side by side')
     .. button(2, '↑')
     .. button(3, '↓')
@@ -148,6 +158,10 @@ function M.jump(dir)
   local old = win == cur.lwin
   if not old and win ~= cur.rwin then
     win = cur.rwin
+  end
+  if cur.mode == 'conflict' then
+    api.nvim_set_current_win(win)
+    return require('nice-git.conflict').jump(dir)
   end
   local starts = {}
   for _, h in ipairs(M.hunks()) do
@@ -232,6 +246,23 @@ function M.discard_hunk()
   end
 end
 
+---Saves the conflicted file and stages it, which tells git it is resolved.
+function M.mark_resolved()
+  if not (cur and cur.mode == 'conflict') then
+    return
+  end
+  local prompt = 'This file still has conflict markers. Mark it resolved anyway?'
+  if require('nice-git.conflict').count() > 0 and vim.fn.confirm(prompt, '&Yes\n&No', 2) ~= 1 then
+    return
+  end
+  if vim.bo[cur.rbuf].modified then
+    api.nvim_buf_call(cur.rbuf, function()
+      vim.cmd('silent write')
+    end)
+  end
+  git.stage(cur.root, { cur.row.entry }, after_git)
+end
+
 local KEYS = {
   [']c'] = function()
     M.jump(1)
@@ -254,6 +285,7 @@ local function teardown()
   end
   -- The new-side buffer/window come first: the old side is nil in inline mode and ipairs stops there.
   api.nvim_clear_autocmds({ group = group })
+  require('nice-git.conflict').detach()
   for _, buf in ipairs({ cur.rbuf, cur.lbuf }) do
     if buf and api.nvim_buf_is_valid(buf) then
       api.nvim_buf_clear_namespace(buf, ns, 0, -1)
@@ -311,7 +343,7 @@ local function show(view)
     api.nvim_win_set_buf(main, rbuf)
   end
 
-  local mode = require('nice-git').config.diff_mode
+  local mode = view.conflict and 'conflict' or require('nice-git').config.diff_mode
   local lbuf, lwin
   if mode == 'split' then
     lbuf = scratch('nice-git://' .. (view.lspec or 'new:' .. path), path, view.llines)
@@ -354,6 +386,9 @@ local function show(view)
       end
     end,
   })
+  if mode == 'conflict' then
+    require('nice-git.conflict').attach(rbuf)
+  end
   set_toolbars()
   decorate()
   api.nvim_set_current_win(main)
@@ -362,11 +397,20 @@ local function show(view)
 end
 
 function M.open(state, row)
-  local lspec, rspec = specs(row.section, row.entry)
+  -- Conflicted files open on their own, markers and all, instead of as a diff.
+  local conflict = row.entry.status == 'U'
+  local lspec, rspec
+  if conflict then
+    rspec = true
+  else
+    lspec, rspec = specs(row.section, row.entry)
+  end
   local tab = cur and cur.tab
   load(state.root, lspec, function(llines)
     load(state.root, rspec, function(rlines)
-      show({ tab = tab, root = state.root, row = row, lspec = lspec, rspec = rspec, llines = llines, rlines = rlines })
+      local view = { tab = tab, root = state.root, row = row, lspec = lspec, rspec = rspec, conflict = conflict }
+      view.llines, view.rlines = llines, rlines
+      show(view)
     end)
   end)
 end
@@ -388,6 +432,13 @@ actions[3] = function()
 end
 actions[4] = M.toggle_hunk
 actions[5] = M.discard_hunk
+actions[6] = function()
+  require('nice-git.conflict').resolve_all('ours')
+end
+actions[7] = function()
+  require('nice-git.conflict').resolve_all('theirs')
+end
+actions[8] = M.mark_resolved
 
 ---Re-reads the git-backed versions (e.g. after staging changed the index).
 function M.refresh()
