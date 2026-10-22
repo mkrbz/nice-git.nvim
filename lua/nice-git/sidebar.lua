@@ -109,6 +109,30 @@ local function toggle_stage(row)
   end
 end
 
+-- Throws away changes of a file row or a whole section; untracked files are deleted.
+local function discard(row)
+  local st = state()
+  local entries = row.entry and { row.entry } or st.status[row.section]
+  local what = row.entry and row.entry.path or (#entries .. ' files')
+  local untracked = row.section == 'untracked'
+  local prompt = untracked and ('Delete ' .. what .. '? This cannot be undone.') or ('Discard changes to ' .. what .. '?')
+  if vim.fn.confirm(prompt, '&Discard\n&Cancel', 2) ~= 1 then
+    return
+  end
+  if untracked then
+    for _, e in ipairs(entries) do
+      os.remove(st.root .. '/' .. e.path)
+    end
+    vim.cmd.checktime()
+    require('nice-git').refresh()
+  else
+    git.discard(st.root, entries, function(...)
+      vim.cmd.checktime()
+      notify_result(...)
+    end)
+  end
+end
+
 ---Rows are plain tables:
 ---  text, hls = { {start_col, end_col, group} }, click = fn(row)
 ---  virt = { {text, group} }        non-clickable right-aligned chunks (e.g. status letter)
@@ -146,15 +170,15 @@ local function build()
     local entries = st[sec.key]
     if #entries > 0 then
       any = true
-      local stage_btn = sec.key == 'staged' and { ' − ', 'NiceGitButton', toggle_stage }
-        or { ' + ', 'NiceGitButton', toggle_stage }
+      local right = sec.key == 'staged' and { { ' − ', 'NiceGitButton', toggle_stage } }
+        or { { ' ↺ ', 'NiceGitButton', discard }, { ' + ', 'NiceGitButton', toggle_stage } }
       local title = (M.collapsed[sec.key] and ' ▸ ' or ' ▾ ') .. sec.title
       add({
         text = title,
         section = sec.key,
         hls = { { 0, #title, 'NiceGitSection' } },
         virt = { { ' ' .. #entries .. ' ', 'NiceGitCount' } },
-        right = { stage_btn },
+        right = right,
         click = function()
           M.collapsed[sec.key] = not M.collapsed[sec.key]
           M.render()
@@ -178,7 +202,7 @@ local function build()
               { #prefix + #name, #line, 'NiceGitPath' },
             },
             virt = { { st_char .. ' ', st_hl } },
-            right = { stage_btn },
+            right = right,
             click = function(row)
               require('nice-git.diff').open(state(), row)
             end,
@@ -357,6 +381,11 @@ local function ensure_buf()
       toggle_stage(row)
     end
   end), 'Stage / unstage')
+  map('n', 'x', with_row(function(row)
+    if row.section and row.section ~= 'staged' then
+      discard(row)
+    end
+  end), 'Discard changes')
   map('n', 'c', function()
     require('nice-git.commit').focus()
   end, 'Write commit message')
