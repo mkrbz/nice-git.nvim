@@ -46,6 +46,14 @@ local HIGHLIGHTS = {
   NiceGitConflictMarker = 'Comment',
   NiceGitConflictButton = 'PmenuSel',
   NiceGitOperation = 'DiagnosticWarn',
+  NiceGitHash = 'Identifier',
+  NiceGitRef = 'Label',
+  NiceGitGraph1 = 'DiagnosticInfo',
+  NiceGitGraph2 = 'DiagnosticHint',
+  NiceGitGraph3 = 'DiagnosticWarn',
+  NiceGitGraph4 = 'Special',
+  NiceGitGraph5 = 'Constant',
+  NiceGitGraph6 = 'Function',
   NiceGitToolbar = 'WinBar',
   NiceGitToolbarTitle = 'WinBar',
   NiceGitToolbarButton = 'TabLine',
@@ -169,6 +177,7 @@ local function build()
     hls = { { 0, #branch, 'NiceGitHeader' }, { #branch, #head, 'NiceGitCount' } },
     buttons = { { 0, #branch, actions.switch_branch } },
     right = {
+      { ' ☰ ', 'NiceGitButton', require('nice-git.log').open },
       { ' ⟳ ', 'NiceGitButton', actions.fetch },
       { ' ↓ ', 'NiceGitButton', actions.pull },
       { ' ↑ ', 'NiceGitButton', actions.push },
@@ -458,6 +467,7 @@ local function ensure_buf()
   end), 'Discard changes')
   local actions = require('nice-git.actions')
   map('n', 'b', actions.switch_branch, 'Switch branch')
+  map('n', 'l', require('nice-git.log').open, 'History')
   map('n', 'f', actions.fetch, 'Fetch')
   map('n', 'p', actions.pull, 'Pull')
   map('n', 'P', actions.push, 'Push')
@@ -500,6 +510,9 @@ function M.open_win()
     wo.cursorline, wo.winfixwidth, wo.winfixbuf = true, true, true
   end
   require('nice-git.commit').open_win(win)
+  if not state().status then
+    require('nice-git').refresh()
+  end
   return win
 end
 

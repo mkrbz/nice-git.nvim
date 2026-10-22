@@ -16,7 +16,10 @@ local cur
 -- Which version each pane shows. A string is a git object spec, `true` the working-tree file,
 -- nil an empty pane (new or deleted file).
 local function specs(section, e)
-  if section == 'staged' then
+  if section == 'commit' then
+    local c = e.commit
+    return e.status ~= 'A' and c .. '^:' .. (e.orig or e.path) or nil, e.status ~= 'D' and c .. ':' .. e.path or nil
+  elseif section == 'staged' then
     return 'HEAD:' .. (e.orig or e.path), ':' .. e.path
   elseif section == 'untracked' then
     return nil, true
@@ -30,7 +33,8 @@ local function label(spec, deleted)
   elseif spec == nil then
     return deleted and '(deleted)' or '(new file)'
   end
-  return spec:sub(1, 1) == ':' and 'Index' or 'HEAD'
+  local rev = spec:match('^(.-):')
+  return rev == '' and 'Index' or rev
 end
 
 local function load(root, spec, cb)
@@ -139,8 +143,11 @@ local function set_toolbars()
   local bar = button(1, cur.mode == 'split' and '≡ Inline' or '⇆ Side by side')
     .. button(2, '↑')
     .. button(3, '↓')
-    .. (cur.row.section == 'staged' and button(4, '− Unstage hunk') or button(4, '+ Stage hunk'))
-    .. (cur.rspec == true and button(5, '↺ Discard hunk') or '')
+  if cur.row.section ~= 'commit' then
+    bar = bar
+      .. (cur.row.section == 'staged' and button(4, '− Unstage hunk') or button(4, '+ Stage hunk'))
+      .. (cur.rspec == true and button(5, '↺ Discard hunk') or '')
+  end
   if cur.lwin then
     vim.wo[cur.lwin].winbar = title(path, cur.lspec, deleted)
     vim.wo[cur.rwin].winbar = title(path, cur.rspec, deleted) .. '%=' .. bar
@@ -213,7 +220,7 @@ end
 
 ---Stages the hunk under the cursor (Changes/Untracked) or unstages it (Staged).
 function M.toggle_hunk()
-  local h = cur and hunk_at_cursor()
+  local h = cur and cur.row.section ~= 'commit' and hunk_at_cursor()
   if not h then
     return
   end
@@ -327,7 +334,7 @@ local function prepare_tab()
   vim.cmd('diffoff!')
 
   -- Reduce the tab to one editor window, then rebuild: [panel | left | right] or [panel | file].
-  local panel = { [sidebar.buf] = true, [require('nice-git.commit').buf or -1] = true }
+  local panel = { [sidebar.buf or -1] = true, [require('nice-git.commit').buf or -1] = true }
   local main
   for _, w in ipairs(api.nvim_tabpage_list_wins(0)) do
     if not panel[api.nvim_win_get_buf(w)] and api.nvim_win_get_config(w).relative == '' then
