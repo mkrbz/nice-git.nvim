@@ -281,7 +281,7 @@ local function set_toolbars()
   local path = cur.row.entry.path
   local deleted = cur.row.entry.status == 'D'
   if cur.mode == 'conflict' then
-    vim.wo[cur.rwin].winbar = title(path, true)
+    vim.wo[cur.rwin].winbar = '%<' .. title(path, true)
       .. '%=%#NiceGitToolbar#'
       .. button(2, i.prev)
       .. button(3, i.next)
@@ -293,22 +293,23 @@ local function set_toolbars()
   local n = #M.hunks()
   local bar = '%#NiceGitDim#' .. n .. (n == 1 and ' change ' or ' changes ') .. '%#NiceGitToolbar# '
     .. segmented(
-      { id = 1, text = i.split .. ' Side by side', active = cur.mode == 'split' },
+      { id = 1, text = i.split .. ' Split', active = cur.mode == 'split' },
       { id = 9, text = i.inline .. ' Inline', active = cur.mode == 'inline' }
     )
     .. button(2, i.prev)
     .. button(3, i.next)
   if cur.row.section ~= 'commit' then
-    bar = bar .. (cur.row.section == 'staged' and button(4, i.remove .. ' Unstage Hunk') or button(4, i.add .. ' Stage Hunk'))
+    bar = bar .. (cur.row.section == 'staged' and button(4, i.remove .. ' Unstage') or button(4, i.add .. ' Stage'))
     if cur.rspec == true then
-      bar = bar .. button(5, i.discard .. ' Discard Hunk')
+      bar = bar .. button(5, i.discard .. ' Discard')
     end
   end
+  -- '%<' makes the title, not the buttons, give way when the pane is narrow.
   if cur.lwin then
-    vim.wo[cur.lwin].winbar = title(path, cur.lspec, deleted)
-    vim.wo[cur.rwin].winbar = title(path, cur.rspec, deleted) .. '%=%#NiceGitToolbar#' .. bar
+    vim.wo[cur.lwin].winbar = '%<' .. title(path, cur.lspec, deleted)
+    vim.wo[cur.rwin].winbar = '%<%#NiceGitDim# ' .. esc(label(cur.rspec, deleted)) .. ' %=%#NiceGitToolbar#' .. bar
   else
-    vim.wo[cur.rwin].winbar = title(path, cur.lspec, deleted) .. '↔ ' .. esc(label(cur.rspec, deleted)) .. ' %=%#NiceGitToolbar#' .. bar
+    vim.wo[cur.rwin].winbar = '%<' .. title(path, cur.lspec, deleted) .. '↔ ' .. esc(label(cur.rspec, deleted)) .. ' %=%#NiceGitToolbar#' .. bar
   end
 end
 
