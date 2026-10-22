@@ -7,6 +7,12 @@ local commands = {
   log = function()
     require('nice-git.log').open()
   end,
+  blame = function()
+    require('nice-git.blame').toggle_panel()
+  end,
+  blame_line = function()
+    require('nice-git.blame').toggle_line()
+  end,
 }
 
 vim.api.nvim_create_user_command('NiceGit', function(opts)

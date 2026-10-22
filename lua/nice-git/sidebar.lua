@@ -47,6 +47,7 @@ local HIGHLIGHTS = {
   NiceGitConflictButton = 'PmenuSel',
   NiceGitOperation = 'DiagnosticWarn',
   NiceGitHash = 'Identifier',
+  NiceGitBlame = 'Comment',
   NiceGitRef = 'Label',
   NiceGitGraph1 = 'DiagnosticInfo',
   NiceGitGraph2 = 'DiagnosticHint',

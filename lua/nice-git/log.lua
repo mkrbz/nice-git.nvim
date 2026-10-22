@@ -161,8 +161,9 @@ local function load_files(hash, cb)
   end)
 end
 
-function M.show_commit(hash)
-  git.run(state().root, { 'show', '--stat', '--patch', hash }, function(ok, out)
+---@param root? string defaults to the active repository
+function M.show_commit(hash, root)
+  git.run(root or state().root, { 'show', '--stat', '--patch', hash }, function(ok, out)
     if ok then
       require('nice-git.diff').show_page('commit:' .. hash, vim.split(out, '\n', { plain = true }), 'git', 'Commit ' .. hash)
     end
