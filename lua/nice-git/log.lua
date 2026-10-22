@@ -199,7 +199,7 @@ local function menu(row)
       vim.fn.setreg('"', hash)
     end },
   }
-  vim.list_extend(choices, M.extra_menu or {})
+  table.insert(choices, { 'Interactive rebase from here…', function() require('nice-git.rebase').open(hash) end })
   vim.ui.select(choices, {
     prompt = hash .. ' ' .. row.commit.subject,
     format_item = function(c)
@@ -274,6 +274,12 @@ local function ensure_buf()
       vim.fn.setreg('"', row.commit.hash)
     end
   end, 'Copy hash')
+  map('R', function()
+    local row = cursor_row()
+    if row and row.commit then
+      require('nice-git.rebase').open(row.commit.hash)
+    end
+  end, 'Interactive rebase from here')
   map('q', function()
     vim.cmd('tabclose')
   end, 'Close')
