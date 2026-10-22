@@ -59,19 +59,28 @@ function M.refresh()
       return done()
     end
     status.operation = operation(M.state.gitdir)
-    git.stashes(root, function(stashes)
-      status.stashes = stashes
-      if root == M.state.root then
-        M.state.status = status
-        require('nice-git.sidebar').render()
-        require('nice-git.diff').refresh()
-        local log = require('nice-git.log')
-        if log.buf and #vim.fn.win_findbuf(log.buf) > 0 then
-          log.refresh()
+    -- The rest of the panel's data, fetched in parallel; each result lands on `status`.
+    local extras = { stashes = git.stashes, worktrees = git.worktrees, submodules = git.submodules, superproject = git.superproject }
+    local pending = vim.tbl_count(extras)
+    for key, fetch in pairs(extras) do
+      fetch(root, function(result)
+        status[key] = result
+        pending = pending - 1
+        if pending > 0 then
+          return
         end
-      end
-      done()
-    end)
+        if root == M.state.root then
+          M.state.status = status
+          require('nice-git.sidebar').render()
+          require('nice-git.diff').refresh()
+          local log = require('nice-git.log')
+          if log.buf and #vim.fn.win_findbuf(log.buf) > 0 then
+            log.refresh()
+          end
+        end
+        done()
+      end)
+    end
   end)
 end
 
@@ -111,10 +120,11 @@ function M.watch()
   end
 end
 
----Finds the repository of the current file (or cwd), makes it the active one, then calls cb.
-function M.with_root(cb)
+---Finds the repository of `dir` (default: the current file, or cwd), makes it the active one,
+---then calls cb.
+function M.with_root(cb, dir)
   local file = api.nvim_buf_get_name(0)
-  local dir = vim.bo.buftype == '' and file ~= '' and vim.fs.dirname(file) or vim.fn.getcwd()
+  dir = dir or vim.bo.buftype == '' and file ~= '' and vim.fs.dirname(file) or vim.fn.getcwd()
   git.resolve(dir, function(root, gitdir, err)
     if not root then
       return vim.notify('nice-git: ' .. err, vim.log.levels.WARN)
@@ -127,11 +137,18 @@ function M.with_root(cb)
   end)
 end
 
-function M.open()
+function M.open(dir)
   M.with_root(function()
     require('nice-git.sidebar').open_win()
+    M.watch()
     M.refresh()
-  end)
+  end, dir)
+end
+
+---Makes another repository (a worktree or submodule) the active one for this tab.
+function M.switch_repo(path)
+  vim.cmd.tcd(vim.fn.fnameescape(path))
+  M.open(path)
 end
 
 function M.toggle()

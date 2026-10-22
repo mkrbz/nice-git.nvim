@@ -99,6 +99,51 @@ function M.stashes(root, cb)
   end)
 end
 
+---@param cb fun(worktrees: { path: string, branch?: string, detached?: boolean, bare?: boolean }[])
+function M.worktrees(root, cb)
+  M.run(root, { 'worktree', 'list', '--porcelain' }, function(ok, out)
+    local list, cur = {}, nil
+    for _, line in ipairs(ok and vim.split(out, '\n', { plain = true }) or {}) do
+      local key, val = line:match('^(%S+) ?(.*)$')
+      if key == 'worktree' then
+        cur = { path = val }
+        table.insert(list, cur)
+      elseif cur and key == 'branch' then
+        cur.branch = val:gsub('^refs/heads/', '')
+      elseif cur and (key == 'detached' or key == 'bare') then
+        cur[key] = true
+      end
+    end
+    cb(list)
+  end)
+end
+
+---@param cb fun(submodules: { path: string, state: string }[])
+function M.submodules(root, cb)
+  if not vim.uv.fs_stat(root .. '/.gitmodules') then
+    return cb({})
+  end
+  M.run(root, { 'submodule', 'status' }, function(ok, out)
+    local list = {}
+    local STATE = { [' '] = 'ok', ['-'] = 'not initialized', ['+'] = 'changed commit', U = 'conflict' }
+    for _, line in ipairs(ok and vim.split(out, '\n', { trimempty = true }) or {}) do
+      local flag, path = line:match('^(.)%x+ (%S+)')
+      if path then
+        table.insert(list, { path = path, state = STATE[flag] or flag })
+      end
+    end
+    cb(list)
+  end)
+end
+
+---@param cb fun(path?: string) the superproject's root when `root` is a submodule
+function M.superproject(root, cb)
+  M.run(root, { 'rev-parse', '--show-superproject-working-tree' }, function(ok, out)
+    local path = vim.trim(out)
+    cb(ok and path ~= '' and path or nil)
+  end)
+end
+
 local function paths(entries)
   local list = {}
   for _, e in ipairs(entries) do
