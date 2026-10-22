@@ -48,6 +48,7 @@ local function ensure_buf()
   for _, lhs in ipairs({ '<C-CR>', '<C-s>' }) do
     vim.keymap.set({ 'n', 'i' }, lhs, M.commit, { buffer = buf, desc = 'Commit' })
   end
+  require('nice-git.diff').map_wheel(buf)
   api.nvim_create_autocmd({ 'TextChanged', 'TextChangedI', 'BufWinEnter' }, {
     buffer = buf,
     callback = M.update_placeholder,

@@ -285,6 +285,30 @@ local KEYS = {
   end,
 }
 
+-- Neovim ignores 'scrollbind' when the mouse wheel scrolls a window that doesn't have focus,
+-- which pulls the two diff panes apart. Scrolling with <C-e>/<C-y> inside the window under the
+-- mouse goes through the normal scrollbind sync instead.
+local WHEEL = { ['<ScrollWheelDown>'] = '<C-e>', ['<ScrollWheelUp>'] = '<C-y>' }
+
+local function wheel(key)
+  return function()
+    local win = vim.fn.getmousepos().winid
+    local lines = tonumber(vim.o.mousescroll:match('ver:(%d+)')) or 3
+    if win ~= 0 and lines > 0 then
+      api.nvim_win_call(win, function()
+        vim.cmd('normal! ' .. lines .. vim.keycode(key))
+      end)
+    end
+  end
+end
+
+---Installs the scrollbind-safe wheel handling on `buf` (any buffer shown in the diff tab).
+function M.map_wheel(buf)
+  for lhs, key in pairs(WHEEL) do
+    vim.keymap.set({ 'n', 'i' }, lhs, wheel(key), { buffer = buf, desc = 'nice-git: scroll' })
+  end
+end
+
 -- Undo everything the view added to buffers that outlive it (the working file in particular).
 local function teardown()
   if not cur then
@@ -298,6 +322,9 @@ local function teardown()
       api.nvim_buf_clear_namespace(buf, ns, 0, -1)
       for lhs in pairs(KEYS) do
         pcall(vim.keymap.del, 'n', lhs, { buffer = buf })
+      end
+      for lhs in pairs(WHEEL) do
+        pcall(vim.keymap.del, { 'n', 'i' }, lhs, { buffer = buf })
       end
     end
   end
@@ -421,6 +448,9 @@ local function show(view)
     end
   end
   api.nvim_create_autocmd({ 'TextChanged', 'TextChangedI' }, { group = group, buffer = rbuf, callback = decorate })
+  for _, buf in ipairs({ rbuf, lbuf }) do
+    M.map_wheel(buf)
+  end
   api.nvim_create_autocmd('TabClosed', {
     group = group,
     callback = function()

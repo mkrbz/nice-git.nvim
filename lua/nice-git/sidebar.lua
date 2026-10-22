@@ -585,6 +585,7 @@ local function ensure_buf()
     require('nice-git').refresh()
   end, 'Refresh')
   map('n', 'q', M.close, 'Close panel')
+  require('nice-git.diff').map_wheel(buf)
 
   -- Watch the repo only while the panel is visible somewhere.
   api.nvim_create_autocmd('BufWinEnter', {
