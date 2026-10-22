@@ -237,6 +237,7 @@ local function open_float(base, root, commits)
     footer = ' drag to reorder · click an action to change it ',
     footer_pos = 'center',
   })
+  require('nice-git.theme').style_window(win, 'float')
   vim.wo[win].cursorline, vim.wo[win].wrap = true, false
   plan = { base = base, root = root, buf = buf, win = win, commits = commits }
   render()

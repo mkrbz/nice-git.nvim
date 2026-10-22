@@ -71,9 +71,8 @@ function M.open_win(list_win)
     return
   end
   local win = api.nvim_open_win(buf, false, { split = 'above', win = list_win, height = 3 })
+  require('nice-git.theme').style_window(win, 'input')
   local wo = vim.wo[win]
-  wo.number, wo.relativenumber, wo.list = false, false, false
-  wo.signcolumn, wo.foldcolumn, wo.statuscolumn = 'no', '0', ''
   wo.wrap, wo.winfixheight, wo.winfixbuf = true, true, true
   M.update_placeholder()
 end

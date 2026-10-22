@@ -227,10 +227,9 @@ function M.toggle_panel()
   vim.bo[buf].modifiable = false
   vim.bo[buf].filetype = 'nice-git-blame'
   local win = api.nvim_open_win(buf, false, { split = 'left', win = src_win, width = 40 })
+  require('nice-git.theme').style_window(win, 'panel')
   local wo = vim.wo[win]
-  wo.number, wo.relativenumber, wo.wrap, wo.list, wo.spell = false, false, false, false, false
-  wo.signcolumn, wo.foldcolumn, wo.statuscolumn, wo.winfixwidth, wo.winfixbuf = 'no', '0', '', true, true
-  wo.foldenable = false
+  wo.wrap, wo.winfixwidth, wo.winfixbuf, wo.foldenable = false, true, true, false
   for _, w in ipairs({ win, src_win }) do
     vim.wo[w].scrollbind, vim.wo[w].cursorbind = true, true
   end

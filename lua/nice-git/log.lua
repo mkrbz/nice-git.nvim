@@ -304,9 +304,8 @@ function M.show()
   else
     vim.cmd('tabnew')
     api.nvim_win_set_buf(0, buf)
-    local wo = vim.wo[0]
-    wo.number, wo.relativenumber, wo.wrap, wo.list, wo.spell = false, false, false, false, false
-    wo.signcolumn, wo.cursorline = 'no', true
+    require('nice-git.theme').style_window(0, 'panel')
+    vim.wo.wrap, vim.wo.cursorline = false, true
   end
   M.refresh()
 end

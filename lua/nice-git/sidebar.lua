@@ -24,47 +24,7 @@ local STATUS = {
   U = { '!', 'NiceGitConflict' },
 }
 
-local HIGHLIGHTS = {
-  NiceGitHeader = 'Title',
-  NiceGitSection = 'Statement',
-  NiceGitCount = 'Comment',
-  NiceGitPath = 'Comment',
-  NiceGitEmpty = 'Comment',
-  NiceGitPlaceholder = 'Comment',
-  NiceGitButton = 'Special',
-  NiceGitCommitButton = 'PmenuSel',
-  NiceGitAdded = 'Added',
-  NiceGitModified = 'Changed',
-  NiceGitDeleted = 'Removed',
-  NiceGitConflict = 'DiagnosticError',
-  NiceGitDropTarget = 'Visual',
-  NiceGitInlineAdd = 'DiffAdd',
-  NiceGitInlineDelete = 'DiffDelete',
-  NiceGitConflictOurs = 'DiffAdd',
-  NiceGitConflictTheirs = 'DiffChange',
-  NiceGitConflictBase = 'DiffText',
-  NiceGitConflictMarker = 'Comment',
-  NiceGitConflictButton = 'PmenuSel',
-  NiceGitOperation = 'DiagnosticWarn',
-  NiceGitHash = 'Identifier',
-  NiceGitBlame = 'Comment',
-  NiceGitRef = 'Label',
-  NiceGitGraph1 = 'DiagnosticInfo',
-  NiceGitGraph2 = 'DiagnosticHint',
-  NiceGitGraph3 = 'DiagnosticWarn',
-  NiceGitGraph4 = 'Special',
-  NiceGitGraph5 = 'Constant',
-  NiceGitGraph6 = 'Function',
-  NiceGitToolbar = 'WinBar',
-  NiceGitToolbarTitle = 'WinBar',
-  NiceGitToolbarButton = 'TabLine',
-}
-
-function M.set_highlights()
-  for name, link in pairs(HIGHLIGHTS) do
-    api.nvim_set_hl(0, name, { link = link, default = true })
-  end
-end
+local theme = require('nice-git.theme')
 
 M.collapsed = { worktrees = true, prs = true }
 M.rows = {}
@@ -600,8 +560,6 @@ local function ensure_buf()
       require('nice-git').unwatch()
     end,
   })
-  M.set_highlights()
-  api.nvim_create_autocmd('ColorScheme', { buffer = buf, callback = M.set_highlights })
   return buf
 end
 
@@ -612,10 +570,9 @@ function M.open_win()
   local win = M.win_in_tab()
   if not win then
     win = api.nvim_open_win(buf, true, { split = 'left', win = -1, width = require('nice-git').config.width })
+    theme.style_window(win, 'panel')
     local wo = vim.wo[win]
-    wo.number, wo.relativenumber, wo.spell, wo.list, wo.wrap = false, false, false, false, false
-    wo.signcolumn, wo.foldcolumn, wo.statuscolumn = 'no', '0', ''
-    wo.cursorline, wo.winfixwidth, wo.winfixbuf = true, true, true
+    wo.wrap, wo.cursorline, wo.winfixwidth, wo.winfixbuf = false, true, true, true
   end
   require('nice-git.commit').open_win(win)
   if not state().status then

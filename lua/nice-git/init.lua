@@ -14,6 +14,8 @@ M.state = {}
 
 function M.setup(opts)
   M.config = vim.tbl_deep_extend('force', M.config, opts or {})
+  local theme = require('nice-git.theme')
+  theme.icons = vim.tbl_extend('force', theme.icons, M.config.icons or {})
 end
 
 local watchers = {}

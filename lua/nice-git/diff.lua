@@ -3,6 +3,7 @@
 --   inline: new version only; removed lines shown as red virtual lines, added lines green
 local api = vim.api
 local git = require('nice-git.git')
+local theme = require('nice-git.theme')
 
 local M = {}
 
@@ -386,6 +387,7 @@ function M.show_page(name, lines, filetype, title_text, buttons)
   local main = prepare_tab()
   local buf = scratch('nice-git://' .. name, nil, lines, filetype)
   api.nvim_win_set_buf(main, buf)
+  theme.style_window(main, 'page')
   require('nice-git.sidebar').open_win()
   local bar = ''
   for i, b in ipairs(buttons or {}) do
@@ -426,7 +428,9 @@ local function show(view)
       end)
       vim.wo[w].foldenable = false -- show the whole file, not just the hunks
     end
+    theme.style_window(lwin, 'diff_old')
   end
+  theme.style_window(main, mode == 'conflict' and 'page' or 'diff_new')
   sidebar.open_win()
 
   cur = {
