@@ -85,29 +85,157 @@ function M.hunks()
   return vim.text.diff(join(cur.base), join(new), { result_type = 'indices' })
 end
 
+-- Treesitter highlight spans per line of the old version: line -> { {start, end, group} }.
+-- Parsed once per base text; empty when the language has no parser.
+local function base_highlights()
+  if cur.base_hl then
+    return cur.base_hl
+  end
+  local spans = {}
+  cur.base_hl = spans
+  local ft = vim.bo[cur.rbuf].filetype
+  local lang = ft ~= '' and vim.treesitter.language.get_lang(ft)
+  local source = table.concat(cur.base, '\n')
+  if not lang or source == '' then
+    return spans
+  end
+  local ok, parser = pcall(vim.treesitter.get_string_parser, source, lang)
+  local okq, query = pcall(vim.treesitter.query.get, lang, 'highlights')
+  if not (ok and parser and okq and query) then
+    return spans
+  end
+  local tree = parser:parse()[1]
+  for id, node in query:iter_captures(tree:root(), source, 0, -1) do
+    local sr, sc, er, ec = node:range()
+    for r = sr, er do
+      local line = cur.base[r + 1]
+      if line then
+        spans[r + 1] = spans[r + 1] or {}
+        table.insert(spans[r + 1], { r == sr and sc or 0, r == er and ec or #line, '@' .. query.captures[id] .. '.' .. lang })
+      end
+    end
+  end
+  return spans
+end
+
+-- Splits a line into word, space, and punctuation tokens: { {start_byte, text} }.
+local function tokens(s)
+  local out, i = {}, 1
+  while i <= #s do
+    local j = s:find('^[%w_]+', i) and select(2, s:find('^[%w_]+', i))
+      or s:find('^%s+', i) and select(2, s:find('^%s+', i))
+      or i
+    table.insert(out, { i, s:sub(i, j) })
+    i = j + 1
+  end
+  return out
+end
+
+---Byte ranges ({start0, end0}) of the tokens that differ, for the old and the new line.
+local function word_diff(a, b)
+  if #a > 500 or #b > 500 then
+    return {}, {}
+  end
+  local ta, tb = tokens(a), tokens(b)
+  local function text(t)
+    return join(vim.tbl_map(function(x)
+      return x[2]
+    end, t))
+  end
+  local ra, rb = {}, {}
+  for _, h in ipairs(vim.text.diff(text(ta), text(tb), { result_type = 'indices' })) do
+    if h[2] > 0 then
+      table.insert(ra, { ta[h[1]][1] - 1, ta[h[1] + h[2] - 1][1] - 1 + #ta[h[1] + h[2] - 1][2] })
+    end
+    if h[4] > 0 then
+      table.insert(rb, { tb[h[3]][1] - 1, tb[h[3] + h[4] - 1][1] - 1 + #tb[h[3] + h[4] - 1][2] })
+    end
+  end
+  return ra, rb
+end
+
+-- A removed line as virtual text: syntax colors on the red background, changed words stronger.
+local function removed_line(i, changed, width, tabstop)
+  local text = cur.base[i]
+  local syn, chg = {}, {}
+  for _, s in ipairs(base_highlights()[i] or {}) do
+    for b = s[1] + 1, s[2] do
+      syn[b] = s[3]
+    end
+  end
+  for _, r in ipairs(changed) do
+    for b = r[1] + 1, r[2] do
+      chg[b] = true
+    end
+  end
+  local chunks, from = {}, 1
+  for b = 1, #text + 1 do
+    if b > #text or syn[b] ~= syn[from] or chg[b] ~= chg[from] then
+      local piece = text:sub(from, b - 1):gsub('\t', (' '):rep(tabstop))
+      local bg = chg[from] and 'NiceGitDiffDeleteText' or 'NiceGitDiffDelete'
+      table.insert(chunks, { piece, syn[from] and { bg, syn[from] } or bg })
+      from = b
+    end
+  end
+  local used = api.nvim_strwidth((text:gsub('\t', (' '):rep(tabstop))))
+  table.insert(chunks, { (' '):rep(math.max(width - used, 0)), 'NiceGitDiffDelete' })
+  return chunks
+end
+
+-- Gutter bars in both modes; in inline mode also removed lines and changed words.
 local function decorate()
-  if not (cur and cur.mode == 'inline' and api.nvim_buf_is_valid(cur.rbuf)) then
+  if not (cur and cur.mode ~= 'conflict' and api.nvim_buf_is_valid(cur.rbuf)) then
     return
   end
-  local buf = cur.rbuf
-  api.nvim_buf_clear_namespace(buf, ns, 0, -1)
+  local buf, inline = cur.rbuf, cur.mode == 'inline'
+  for _, b in ipairs({ buf, cur.lbuf }) do
+    api.nvim_buf_clear_namespace(b, ns, 0, -1)
+  end
   local width = api.nvim_win_is_valid(cur.rwin) and api.nvim_win_get_width(cur.rwin) or 200
   local last = api.nvim_buf_line_count(buf)
+  local new = api.nvim_buf_get_lines(buf, 0, -1, false)
+  local function sign(b, line, text, hl)
+    if line >= 1 and line <= api.nvim_buf_line_count(b) then
+      api.nvim_buf_set_extmark(b, ns, line - 1, 0, { sign_text = text, sign_hl_group = hl, priority = 5 })
+    end
+  end
   for _, h in ipairs(M.hunks()) do
     local sa, ca, sb, cb = unpack(h)
-    if ca > 0 then
-      local virt = {}
-      for i = sa, sa + ca - 1 do
-        local text = cur.base[i]:gsub('\t', (' '):rep(vim.bo[buf].tabstop))
-        table.insert(virt, { { text .. (' '):rep(math.max(width - api.nvim_strwidth(text), 0)), 'NiceGitInlineDelete' } })
-      end
-      -- Removed lines go above the hunk's first new line, or below the line they followed.
-      local above = cb > 0 or sb == 0
-      local line = math.min(math.max(sb - 1, 0), last - 1)
-      api.nvim_buf_set_extmark(buf, ns, line, 0, { virt_lines = virt, virt_lines_above = above })
-    end
+    local kind = (ca > 0 and cb > 0) and 'NiceGitGutterChange' or 'NiceGitGutterAdd'
     for l = sb, sb + cb - 1 do
-      api.nvim_buf_set_extmark(buf, ns, l - 1, 0, { line_hl_group = 'NiceGitInlineAdd' })
+      sign(buf, l, '▎', kind)
+    end
+    if cb == 0 then
+      sign(buf, math.max(sb, 1), '▁', 'NiceGitGutterDelete')
+    end
+    if cur.lbuf then
+      for l = sa, sa + ca - 1 do
+        sign(cur.lbuf, l, '▎', 'NiceGitGutterDelete')
+      end
+    end
+    if inline then
+      -- Pair old and new lines of the hunk for word-level highlights.
+      local old_words = {}
+      for k = 0, math.min(ca, cb) - 1 do
+        local ra, rb = word_diff(cur.base[sa + k], new[sb + k])
+        old_words[sa + k] = ra
+        for _, r in ipairs(rb) do
+          api.nvim_buf_set_extmark(buf, ns, sb + k - 1, r[1], { end_col = r[2], hl_group = 'NiceGitDiffAddText', priority = 90 })
+        end
+      end
+      if ca > 0 then
+        local virt = {}
+        for i = sa, sa + ca - 1 do
+          table.insert(virt, removed_line(i, old_words[i] or {}, width, vim.bo[buf].tabstop))
+        end
+        -- Removed lines go above the hunk's first new line, or below the line they followed.
+        local above = cb > 0 or sb == 0
+        local line = math.min(math.max(sb - 1, 0), last - 1)
+        api.nvim_buf_set_extmark(buf, ns, line, 0, { virt_lines = virt, virt_lines_above = above })
+      end
+      for l = sb, sb + cb - 1 do
+        api.nvim_buf_set_extmark(buf, ns, l - 1, 0, { line_hl_group = 'NiceGitInlineAdd' })
+      end
     end
   end
 end
@@ -120,40 +248,67 @@ _G.NiceGitDiffClick = function(id)
   end
 end
 
-local function button(id, text)
-  return ('%%%d@v:lua.NiceGitDiffClick@%%#NiceGitToolbarButton# %s %%*%%X '):format(id, text)
+local function esc(s)
+  return (s:gsub('%%', '%%%%'))
+end
+
+---A clickable pill in the toolbar; `accent` uses the strong style.
+local function button(id, text, accent)
+  local body = accent and 'NiceGitPill' or 'NiceGitPillSoft'
+  local i = theme.icons
+  return ('%%%d@v:lua.NiceGitDiffClick@%%#%sEdge#%s%%#%s# %s %%#%sEdge#%s%%X%%#NiceGitToolbar# '):format(
+    id, body, i.pill_left, body, esc(text), body, i.pill_right)
+end
+
+-- Two joined segments; the active one is highlighted.
+local function segmented(a, b)
+  local i = theme.icons
+  local function part(seg)
+    local hl = seg.active and 'NiceGitPill' or 'NiceGitPillSoft'
+    return ('%%%d@v:lua.NiceGitDiffClick@%%#%s# %s %%X'):format(seg.id, hl, esc(seg.text)), hl
+  end
+  local pa, ha = part(a)
+  local pb, hb = part(b)
+  return ('%%#%sEdge#%s%s%s%%#%sEdge#%s%%#NiceGitToolbar# '):format(ha, i.pill_left, pa, pb, hb, i.pill_right)
 end
 
 local function title(path, spec, deleted)
-  return '%#NiceGitToolbarTitle# ' .. path:gsub('%%', '%%%%') .. ' %#NiceGitToolbar#· ' .. label(spec, deleted) .. ' %*'
+  return '%#NiceGitToolbarTitle# ' .. theme.icons.file .. ' ' .. esc(path) .. ' %#NiceGitDim#' .. esc(label(spec, deleted)) .. ' '
 end
 
 local function set_toolbars()
+  local i = theme.icons
   local path = cur.row.entry.path
   local deleted = cur.row.entry.status == 'D'
   if cur.mode == 'conflict' then
     vim.wo[cur.rwin].winbar = title(path, true)
-      .. '%='
-      .. button(2, '↑')
-      .. button(3, '↓')
-      .. button(6, 'Accept all current')
-      .. button(7, 'Accept all incoming')
-      .. button(8, '✓ Mark resolved')
+      .. '%=%#NiceGitToolbar#'
+      .. button(2, i.prev)
+      .. button(3, i.next)
+      .. button(6, 'Accept All Current')
+      .. button(7, 'Accept All Incoming')
+      .. button(8, i.check .. ' Mark Resolved', true)
     return
   end
-  local bar = button(1, cur.mode == 'split' and '≡ Inline' or '⇆ Side by side')
-    .. button(2, '↑')
-    .. button(3, '↓')
+  local n = #M.hunks()
+  local bar = '%#NiceGitDim#' .. n .. (n == 1 and ' change ' or ' changes ') .. '%#NiceGitToolbar# '
+    .. segmented(
+      { id = 1, text = i.split .. ' Side by side', active = cur.mode == 'split' },
+      { id = 9, text = i.inline .. ' Inline', active = cur.mode == 'inline' }
+    )
+    .. button(2, i.prev)
+    .. button(3, i.next)
   if cur.row.section ~= 'commit' then
-    bar = bar
-      .. (cur.row.section == 'staged' and button(4, '− Unstage hunk') or button(4, '+ Stage hunk'))
-      .. (cur.rspec == true and button(5, '↺ Discard hunk') or '')
+    bar = bar .. (cur.row.section == 'staged' and button(4, i.remove .. ' Unstage Hunk') or button(4, i.add .. ' Stage Hunk'))
+    if cur.rspec == true then
+      bar = bar .. button(5, i.discard .. ' Discard Hunk')
+    end
   end
   if cur.lwin then
     vim.wo[cur.lwin].winbar = title(path, cur.lspec, deleted)
-    vim.wo[cur.rwin].winbar = title(path, cur.rspec, deleted) .. '%=' .. bar
+    vim.wo[cur.rwin].winbar = title(path, cur.rspec, deleted) .. '%=%#NiceGitToolbar#' .. bar
   else
-    vim.wo[cur.rwin].winbar = title(path, cur.lspec, deleted) .. ' → ' .. label(cur.rspec, deleted) .. '%=' .. bar
+    vim.wo[cur.rwin].winbar = title(path, cur.lspec, deleted) .. '↔ ' .. esc(label(cur.rspec, deleted)) .. ' %=%#NiceGitToolbar#' .. bar
   end
 end
 
@@ -451,7 +606,14 @@ local function show(view)
       vim.keymap.set('n', lhs, fn, { buffer = buf, desc = 'nice-git' })
     end
   end
-  api.nvim_create_autocmd({ 'TextChanged', 'TextChangedI' }, { group = group, buffer = rbuf, callback = decorate })
+  api.nvim_create_autocmd({ 'TextChanged', 'TextChangedI' }, {
+    group = group,
+    buffer = rbuf,
+    callback = function()
+      decorate()
+      set_toolbars()
+    end,
+  })
   for _, buf in ipairs({ rbuf, lbuf }) do
     M.map_wheel(buf)
   end
@@ -499,7 +661,16 @@ function M.toggle_mode()
   end
 end
 
-actions[1] = M.toggle_mode
+actions[1] = function()
+  if cur and cur.mode ~= 'split' then
+    M.toggle_mode()
+  end
+end
+actions[9] = function()
+  if cur and cur.mode ~= 'inline' then
+    M.toggle_mode()
+  end
+end
 actions[2] = function()
   M.jump(-1)
 end
@@ -526,7 +697,7 @@ function M.refresh()
     if cur ~= view then
       return
     end
-    view.base = llines
+    view.base, view.base_hl = llines, nil
     if view.lbuf and api.nvim_buf_is_valid(view.lbuf) then
       set_lines(view.lbuf, llines)
     end
