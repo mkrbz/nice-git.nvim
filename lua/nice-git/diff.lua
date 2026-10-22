@@ -129,6 +129,8 @@ local function set_toolbars()
   local bar = button(1, cur.mode == 'split' and '≡ Inline' or '⇆ Side by side')
     .. button(2, '↑')
     .. button(3, '↓')
+    .. (cur.row.section == 'staged' and button(4, '− Unstage hunk') or button(4, '+ Stage hunk'))
+    .. (cur.rspec == true and button(5, '↺ Discard hunk') or '')
   if cur.lwin then
     vim.wo[cur.lwin].winbar = title(path, cur.lspec, deleted)
     vim.wo[cur.rwin].winbar = title(path, cur.rspec, deleted) .. '%=' .. bar
@@ -168,12 +170,80 @@ function M.jump(dir)
   vim.cmd('normal! zz')
 end
 
+local function hunk_at_cursor()
+  local win = api.nvim_get_current_win()
+  local old = win == cur.lwin
+  local line = api.nvim_win_get_cursor(old and win or cur.rwin)[1]
+  for _, h in ipairs(M.hunks()) do
+    local s, c = h[old and 1 or 3], h[old and 2 or 4]
+    if (c > 0 and line >= s and line < s + c) or (c == 0 and (line == s or line == s + 1)) then
+      return h
+    end
+  end
+  vim.notify('nice-git: no change under the cursor', vim.log.levels.WARN)
+end
+
+-- `a` with the hunk's region of `a` (sa, ca) replaced by the region of `b` (sb, cb).
+local function apply(a, sa, ca, b, sb, cb)
+  local out = vim.list_slice(a, 1, ca > 0 and sa - 1 or sa)
+  vim.list_extend(out, vim.list_slice(b, sb, sb + cb - 1))
+  return vim.list_extend(out, vim.list_slice(a, ca > 0 and sa + ca or sa + 1))
+end
+
+local function after_git(ok, out, err)
+  if not ok then
+    vim.notify('nice-git: ' .. vim.trim(err ~= '' and err or out), vim.log.levels.ERROR)
+  end
+  require('nice-git').refresh()
+end
+
+---Stages the hunk under the cursor (Changes/Untracked) or unstages it (Staged).
+function M.toggle_hunk()
+  local h = cur and hunk_at_cursor()
+  if not h then
+    return
+  end
+  local sa, ca, sb, cb = unpack(h)
+  local new = api.nvim_buf_get_lines(cur.rbuf, 0, -1, false)
+  local index = cur.row.section == 'staged' and apply(new, sb, cb, cur.base, sa, ca) or apply(cur.base, sa, ca, new, sb, cb)
+  git.write_index(cur.root, cur.row.entry.path, index, after_git)
+end
+
+---Reverts the hunk under the cursor in the working file and saves it if it had no other edits.
+function M.discard_hunk()
+  local h = cur and cur.rspec == true and hunk_at_cursor()
+  if not h then
+    return
+  end
+  local sa, ca, sb, cb = unpack(h)
+  local buf = cur.rbuf
+  local was_modified = vim.bo[buf].modified
+  local old = vim.list_slice(cur.base, sa, sa + ca - 1)
+  if cb > 0 then
+    api.nvim_buf_set_lines(buf, sb - 1, sb - 1 + cb, false, old)
+  else
+    api.nvim_buf_set_lines(buf, sb, sb, false, old)
+  end
+  if not was_modified then
+    api.nvim_buf_call(buf, function()
+      vim.cmd('silent noautocmd write')
+    end)
+    require('nice-git').refresh()
+  end
+end
+
 local KEYS = {
   [']c'] = function()
     M.jump(1)
   end,
   ['[c'] = function()
     M.jump(-1)
+  end,
+  ['<leader>hs'] = function()
+    M.toggle_hunk()
+  end,
+  ['<leader>hr'] = function()
+    M.discard_hunk()
   end,
 }
 
@@ -272,7 +342,7 @@ local function show(view)
   }
   for _, buf in ipairs({ rbuf, lbuf }) do
     for lhs, fn in pairs(KEYS) do
-      vim.keymap.set('n', lhs, fn, { buffer = buf, desc = 'nice-git: jump to hunk' })
+      vim.keymap.set('n', lhs, fn, { buffer = buf, desc = 'nice-git' })
     end
   end
   api.nvim_create_autocmd({ 'TextChanged', 'TextChangedI' }, { group = group, buffer = rbuf, callback = decorate })
@@ -316,6 +386,8 @@ end
 actions[3] = function()
   M.jump(1)
 end
+actions[4] = M.toggle_hunk
+actions[5] = M.discard_hunk
 
 ---Re-reads the git-backed versions (e.g. after staging changed the index).
 function M.refresh()

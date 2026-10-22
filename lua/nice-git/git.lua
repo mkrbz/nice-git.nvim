@@ -104,6 +104,24 @@ function M.unstage(root, entries, has_head, cb)
   M.run(root, vim.list_extend(args, paths(entries)), cb)
 end
 
+---Restores tracked files to their index version.
+function M.discard(root, entries, cb)
+  M.run(root, vim.list_extend({ 'restore', '--' }, paths(entries)), cb)
+end
+
+---Replaces the index version of `path` with `lines` (used for hunk staging).
+function M.write_index(root, path, lines, cb)
+  M.run(root, { 'ls-files', '-s', '--', path }, function(_, out)
+    local mode = out:match('^(%d+)') or (vim.fn.executable(root .. '/' .. path) == 1 and '100755' or '100644')
+    M.run(root, { 'hash-object', '-w', '--stdin', '--path=' .. path }, function(ok, sha, err)
+      if not ok then
+        return cb(false, '', err)
+      end
+      M.run(root, { 'update-index', '--add', '--cacheinfo', mode .. ',' .. vim.trim(sha) .. ',' .. path }, cb)
+    end, { stdin = #lines == 0 and '' or table.concat(lines, '\n') .. '\n' })
+  end)
+end
+
 ---Contents of `rev:path` (e.g. "HEAD:a.lua", ":a.lua" for the index); empty when it doesn't exist.
 ---@param cb fun(lines: string[])
 function M.show(root, spec, cb)
