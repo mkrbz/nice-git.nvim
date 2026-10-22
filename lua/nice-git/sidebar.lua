@@ -40,6 +40,12 @@ local HIGHLIGHTS = {
   NiceGitDropTarget = 'Visual',
   NiceGitInlineAdd = 'DiffAdd',
   NiceGitInlineDelete = 'DiffDelete',
+  NiceGitConflictOurs = 'DiffAdd',
+  NiceGitConflictTheirs = 'DiffChange',
+  NiceGitConflictBase = 'DiffText',
+  NiceGitConflictMarker = 'Comment',
+  NiceGitConflictButton = 'PmenuSel',
+  NiceGitOperation = 'DiagnosticWarn',
   NiceGitToolbar = 'WinBar',
   NiceGitToolbarTitle = 'WinBar',
   NiceGitToolbarButton = 'TabLine',
@@ -168,6 +174,23 @@ local function build()
       { ' ↑ ', 'NiceGitButton', actions.push },
     },
   })
+
+  if st.operation then
+    local label = ' ⚠ ' .. st.operation:upper() .. ' '
+    local line, buttons = label, {}
+    local ops = { { ' Continue ', actions.continue }, { ' Abort ', actions.abort } }
+    if st.operation == 'rebase' or st.operation == 'cherry-pick' then
+      table.insert(ops, 2, { ' Skip ', actions.skip })
+    end
+    local hls = { { 0, #label, 'NiceGitOperation' } }
+    for _, op in ipairs(ops) do
+      line = line .. ' '
+      table.insert(buttons, { #line, #line + #op[1], op[2] })
+      table.insert(hls, { #line, #line + #op[1], 'NiceGitButton' })
+      line = line .. op[1]
+    end
+    add({ text = line, hls = hls, buttons = buttons })
+  end
 
   local btn = ' ✓ Commit '
   local amend = commit.amend and ' ☑ Amend ' or ' ☐ Amend '

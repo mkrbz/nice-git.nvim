@@ -20,6 +20,22 @@ local watchers = {}
 local timer = assert(vim.uv.new_timer())
 local busy, again = false, false
 
+-- The multi-step operation in progress, judged by the state files git leaves in the git dir.
+local function operation(gitdir)
+  local function exists(name)
+    return vim.uv.fs_stat(gitdir .. '/' .. name) ~= nil
+  end
+  if exists('rebase-merge') or exists('rebase-apply') then
+    return 'rebase'
+  elseif exists('MERGE_HEAD') then
+    return 'merge'
+  elseif exists('CHERRY_PICK_HEAD') then
+    return 'cherry-pick'
+  elseif exists('REVERT_HEAD') then
+    return 'revert'
+  end
+end
+
 function M.refresh()
   if not M.state.root then
     return
@@ -32,6 +48,7 @@ function M.refresh()
   git.status(M.state.root, function(status, err)
     busy = false
     if status then
+      status.operation = operation(M.state.gitdir)
       M.state.status = status
       require('nice-git.sidebar').render()
       require('nice-git.diff').refresh()

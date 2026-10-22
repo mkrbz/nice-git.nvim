@@ -29,7 +29,10 @@ function M.update_placeholder()
   end
   api.nvim_buf_clear_namespace(buf, ns, 0, -1)
   if api.nvim_buf_line_count(buf) == 1 and api.nvim_buf_get_lines(buf, 0, 1, false)[1] == '' then
-    local text = M.amend and 'Message (empty keeps the previous one)' or 'Message (Ctrl-Enter to commit)'
+    local status = state().status or {}
+    local text = M.amend and 'Message (empty keeps the previous one)'
+      or status.operation == 'merge' and 'Message (empty uses the merge message)'
+      or 'Message (Ctrl-Enter to commit)'
     api.nvim_buf_set_extmark(buf, ns, 0, 0, { virt_text = { { text, 'NiceGitPlaceholder' } }, virt_text_pos = 'overlay' })
   end
 end
@@ -108,13 +111,15 @@ function M.commit()
     return
   end
   local msg = message()
-  if msg == '' and not M.amend then
+  -- Concluding a merge may reuse git's prepared message.
+  local merging = status.operation == 'merge'
+  if msg == '' and not M.amend and not merging then
     return vim.notify('nice-git: enter a commit message first', vim.log.levels.WARN)
   end
   local args = { 'commit' }
   if M.amend then
     table.insert(args, '--amend')
-  elseif #status.staged == 0 then
+  elseif #status.staged == 0 and not merging then
     if #status.changes == 0 then
       return vim.notify('nice-git: nothing to commit', vim.log.levels.WARN)
     end

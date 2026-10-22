@@ -79,6 +79,31 @@ function M.push()
   end)
 end
 
+---Finishes the merge/rebase/cherry-pick/revert in progress. A merge is concluded by committing,
+---so the commit box message (if any) is used.
+function M.continue()
+  local op = state().status.operation
+  if op == 'merge' then
+    require('nice-git.commit').commit()
+  elseif op then
+    M.run({ op, '--continue' })
+  end
+end
+
+function M.abort()
+  local op = state().status.operation
+  if op and vim.fn.confirm('Abort the ' .. op .. '?', '&Abort\n&Cancel', 2) == 1 then
+    M.run({ op, '--abort' })
+  end
+end
+
+function M.skip()
+  local op = state().status.operation
+  if op then
+    M.run({ op, '--skip' })
+  end
+end
+
 local NEW = { label = '+ Create new branch…' }
 
 ---Picks a local or remote branch to switch to, or creates a new one.
