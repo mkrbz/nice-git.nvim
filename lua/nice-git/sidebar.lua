@@ -66,7 +66,7 @@ function M.set_highlights()
   end
 end
 
-M.collapsed = {}
+M.collapsed = { worktrees = true }
 M.rows = {}
 
 -- Width in cells of every right-aligned button label; clicks are mapped back by position.
@@ -165,6 +165,9 @@ local function build()
   end
 
   local actions = require('nice-git.actions')
+  for _, win in ipairs(vim.fn.win_findbuf(M.buf)) do
+    vim.wo[win].winbar = '%#NiceGitSection# SOURCE CONTROL %#NiceGitPath#' .. vim.fs.basename(state().root):gsub('%%', '%%%%')
+  end
   local branch = ' ⎇ ' .. (st.branch == '(detached)' and 'detached HEAD' or st.branch or '?')
   local head = branch
   if st.ahead then
@@ -200,6 +203,17 @@ local function build()
       line = line .. op[1]
     end
     add({ text = line, hls = hls, buttons = buttons })
+  end
+
+  if st.superproject then
+    local text = '   ↖ Parent repository'
+    add({
+      text = text,
+      hls = { { 0, #text, 'NiceGitButton' } },
+      click = function()
+        require('nice-git').switch_repo(st.superproject)
+      end,
+    })
   end
 
   local btn = ' ✓ Commit '
@@ -264,19 +278,68 @@ local function build()
     add({ text = '   No changes', hls = { { 0, 13, 'NiceGitEmpty' } } })
   end
 
-  local stashes = st.stashes or {}
-  if #stashes > 0 then
-    local title = (M.collapsed.stashes and ' ▸ ' or ' ▾ ') .. 'STASHES'
+  -- Collapsible section with a title row; `fill` adds its rows when expanded.
+  local function section(key, title, count, right, fill)
+    local text = (M.collapsed[key] and ' ▸ ' or ' ▾ ') .. title
     add({
-      text = title,
-      hls = { { 0, #title, 'NiceGitSection' } },
-      virt = { { ' ' .. #stashes .. ' ', 'NiceGitCount' } },
+      text = text,
+      hls = { { 0, #text, 'NiceGitSection' } },
+      virt = { { ' ' .. count .. ' ', 'NiceGitCount' } },
+      right = right,
       click = function()
-        M.collapsed.stashes = not M.collapsed.stashes
+        M.collapsed[key] = not M.collapsed[key]
         M.render()
       end,
     })
-    if not M.collapsed.stashes then
+    if not M.collapsed[key] then
+      fill()
+    end
+  end
+
+  local worktrees = st.worktrees or {}
+  local root = state().root
+  section('worktrees', 'WORKTREES', #worktrees, { { ' + ', 'NiceGitButton', actions.add_worktree } }, function()
+    for i, wt in ipairs(worktrees) do
+      local current = wt.path == root
+      local name = wt.branch or (wt.bare and '(bare)') or '(detached)'
+      local prefix = current and '   ● ' or '   ⌂ '
+      local line = prefix .. name .. ' ' .. vim.fn.fnamemodify(wt.path, ':~')
+      add({
+        text = line,
+        hls = { { 3, #prefix, current and 'NiceGitAdded' or 'NiceGitPath' }, { #prefix + #name, #line, 'NiceGitPath' } },
+        -- The first entry is the main worktree, which can't be removed.
+        right = (i > 1 and not current) and { { ' ✕ ', 'NiceGitButton', function()
+          actions.remove_worktree(wt)
+        end } } or nil,
+        click = not current and function()
+          require('nice-git').switch_repo(wt.path)
+        end or nil,
+      })
+    end
+  end)
+
+  local submodules = st.submodules or {}
+  if #submodules > 0 then
+    section('submodules', 'SUBMODULES', #submodules, nil, function()
+      for _, sm in ipairs(submodules) do
+        local line = '   ▣ ' .. sm.path .. (sm.state ~= 'ok' and ' ' .. sm.state or '')
+        add({
+          text = line,
+          hls = { { 3, 6, 'NiceGitPath' }, { 7 + #sm.path, #line, sm.state == 'ok' and 'NiceGitPath' or 'NiceGitModified' } },
+          right = { { ' ⟳ ', 'NiceGitButton', function()
+            actions.update_submodule(sm)
+          end } },
+          click = function()
+            require('nice-git').switch_repo(root .. '/' .. sm.path)
+          end,
+        })
+      end
+    end)
+  end
+
+  local stashes = st.stashes or {}
+  if #stashes > 0 then
+    section('stashes', 'STASHES', #stashes, nil, function()
       for _, stash in ipairs(stashes) do
         local line = '   ≡ ' .. stash.message
         add({
@@ -284,15 +347,19 @@ local function build()
           stash = stash,
           hls = { { 3, 6, 'NiceGitPath' } },
           right = {
-            { ' ↓ ', 'NiceGitButton', function() actions.stash_apply(stash) end },
-            { ' ✕ ', 'NiceGitButton', function() actions.stash_drop(stash) end },
+            { ' ↓ ', 'NiceGitButton', function()
+              actions.stash_apply(stash)
+            end },
+            { ' ✕ ', 'NiceGitButton', function()
+              actions.stash_drop(stash)
+            end },
           },
           click = function()
             actions.show_stash(stash)
           end,
         })
       end
-    end
+    end)
   end
   return rows
 end

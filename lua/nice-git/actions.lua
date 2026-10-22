@@ -147,6 +147,37 @@ function M.show_stash(stash)
   end)
 end
 
+---Creates a worktree for a new or existing branch next to the repository.
+function M.add_worktree()
+  local root = state().root
+  vim.ui.input({ prompt = 'Branch for the new worktree: ' }, function(branch)
+    branch = branch and vim.trim(branch)
+    if not branch or branch == '' then
+      return
+    end
+    local default = vim.fs.dirname(root) .. '/' .. vim.fs.basename(root) .. '-' .. branch:gsub('/', '-')
+    vim.ui.input({ prompt = 'Worktree path: ', default = default, completion = 'dir' }, function(path)
+      if not path or vim.trim(path) == '' then
+        return
+      end
+      path = vim.fn.fnamemodify(vim.trim(path), ':p'):gsub('/$', '')
+      git.run(root, { 'rev-parse', '--verify', '-q', 'refs/heads/' .. branch }, function(exists)
+        M.run(exists and { 'worktree', 'add', path, branch } or { 'worktree', 'add', '-b', branch, path })
+      end)
+    end)
+  end)
+end
+
+function M.remove_worktree(wt)
+  if vim.fn.confirm('Remove worktree ' .. wt.path .. '?', '&Remove\n&Cancel', 2) == 1 then
+    M.run({ 'worktree', 'remove', wt.path })
+  end
+end
+
+function M.update_submodule(sm)
+  M.run({ 'submodule', 'update', '--init', '--recursive', '--', sm.path })
+end
+
 local NEW = { label = '+ Create new branch…' }
 
 ---Picks a local or remote branch to switch to, or creates a new one.
