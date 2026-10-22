@@ -290,18 +290,36 @@ local function set_toolbars()
       .. button(8, i.check .. ' Mark Resolved', true)
     return
   end
+  -- Narrow panes get a more compact bar: first without the change count, then icon-only
+  -- hunk buttons, then an icon-only mode switch.
   local n = #M.hunks()
-  local bar = '%#NiceGitDim#' .. n .. (n == 1 and ' change ' or ' changes ') .. '%#NiceGitToolbar# '
-    .. segmented(
-      { id = 1, text = i.split .. ' Split', active = cur.mode == 'split' },
-      { id = 9, text = i.inline .. ' Inline', active = cur.mode == 'inline' }
-    )
-    .. button(2, i.prev)
-    .. button(3, i.next)
-  if cur.row.section ~= 'commit' then
-    bar = bar .. (cur.row.section == 'staged' and button(4, i.remove .. ' Unstage') or button(4, i.add .. ' Stage'))
-    if cur.rspec == true then
-      bar = bar .. button(5, i.discard .. ' Discard')
+  local function build(level)
+    local text = level < 1 and ('%#NiceGitDim#' .. n .. (n == 1 and ' change ' or ' changes ') .. '%#NiceGitToolbar# ') or ''
+    local word = function(s)
+      return level < 2 and ' ' .. s or ''
+    end
+    text = text
+      .. segmented(
+        { id = 1, text = i.split .. (level < 3 and ' Split' or ''), active = cur.mode == 'split' },
+        { id = 9, text = i.inline .. (level < 3 and ' Inline' or ''), active = cur.mode == 'inline' }
+      )
+      .. button(2, i.prev)
+      .. button(3, i.next)
+    if cur.row.section ~= 'commit' then
+      text = text .. (cur.row.section == 'staged' and button(4, i.remove .. word('Unstage')) or button(4, i.add .. word('Stage')))
+      if cur.rspec == true then
+        text = text .. button(5, i.discard .. word('Discard'))
+      end
+    end
+    return text
+  end
+  local width = api.nvim_win_get_width(cur.rwin)
+  local bar
+  for level = 0, 3 do
+    bar = build(level)
+    -- The label on the left may shrink to almost nothing ('%<'), so only keep a little room for it.
+    if api.nvim_eval_statusline(bar, { winid = cur.rwin, use_winbar = true, maxwidth = 1000 }).width + 4 <= width then
+      break
     end
   end
   -- '%<' makes the title, not the buttons, give way when the pane is narrow.
@@ -588,6 +606,13 @@ local function show(view)
   end
   theme.style_window(main, mode == 'conflict' and 'page' or 'diff_new')
   sidebar.open_win()
+  if lwin then
+    -- The panel takes its width from the pane next to it; share what is left evenly
+    -- (the panel keeps its width: it has 'winfixwidth').
+    api.nvim_win_call(main, function()
+      vim.cmd('wincmd =')
+    end)
+  end
 
   cur = {
     tab = view_tab,
@@ -618,6 +643,14 @@ local function show(view)
   for _, buf in ipairs({ rbuf, lbuf }) do
     M.map_wheel(buf)
   end
+  api.nvim_create_autocmd('WinResized', {
+    group = group,
+    callback = function()
+      if cur and api.nvim_win_is_valid(cur.rwin) and vim.tbl_contains(vim.v.event.windows or {}, cur.rwin) then
+        set_toolbars()
+      end
+    end,
+  })
   api.nvim_create_autocmd('TabClosed', {
     group = group,
     callback = function()
