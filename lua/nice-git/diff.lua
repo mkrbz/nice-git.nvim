@@ -362,10 +362,9 @@ local function prepare_tab()
   vim.cmd('diffoff!')
 
   -- Reduce the tab to one editor window, then rebuild: [panel | left | right] or [panel | file].
-  local panel = { [sidebar.buf or -1] = true, [require('nice-git.commit').buf or -1] = true }
   local main
   for _, w in ipairs(api.nvim_tabpage_list_wins(0)) do
-    if not panel[api.nvim_win_get_buf(w)] and api.nvim_win_get_config(w).relative == '' then
+    if not sidebar.is_panel_buf(api.nvim_win_get_buf(w)) and api.nvim_win_get_config(w).relative == '' then
       main = w
       break
     end
@@ -376,6 +375,7 @@ local function prepare_tab()
     vim.cmd('vnew')
     main = api.nvim_get_current_win()
   end
+  sidebar.close()
   vim.cmd('silent! only')
   vim.wo[main].winbar = ''
   return main

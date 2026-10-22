@@ -1,10 +1,15 @@
--- Source Control panel: one buffer, shown in a left split of every tab that asks for it.
+-- Source Control panel: a left column of two stacked windows. The header (title bar, commit box,
+-- Commit button, branch/sync row) has a fixed size; the list below scrolls and holds the sections.
 local api = vim.api
 local git = require('nice-git.git')
+local theme = require('nice-git.theme')
+local ui = require('nice-git.ui')
 
-local M = {}
+local M = { collapsed = { worktrees = true, prs = true }, rows = {}, header_rows = {} }
 
 local ns = api.nvim_create_namespace('nice-git')
+local ns_right = api.nvim_create_namespace('nice-git-right')
+local ns_hover = api.nvim_create_namespace('nice-git-hover-line')
 local ns_drop = api.nvim_create_namespace('nice-git-drop')
 
 local SECTIONS = {
@@ -24,13 +29,13 @@ local STATUS = {
   U = { '!', 'NiceGitConflict' },
 }
 
-local theme = require('nice-git.theme')
+local function icons()
+  return theme.icons
+end
 
-M.collapsed = { worktrees = true, prs = true }
-M.rows = {}
-
--- Width in cells of every right-aligned button label; clicks are mapped back by position.
-local BUTTON_WIDTH = 3
+local function state()
+  return require('nice-git').state
+end
 
 local icon_provider
 local function file_icon(path)
@@ -49,29 +54,41 @@ local function file_icon(path)
     end
   end
   if not icon_provider then
-    return '•', 'NiceGitPath'
+    return icons().file, 'NiceGitDim'
   end
   return icon_provider(vim.fs.basename(path))
 end
 
-local function state()
-  return require('nice-git').state
-end
-
 local function notify_result(ok, out, err)
   if not ok then
-    require('nice-git.ui').notify(vim.trim(err ~= '' and err or out), vim.log.levels.ERROR)
+    ui.notify(vim.trim(err ~= '' and err or out), vim.log.levels.ERROR)
   end
   require('nice-git').refresh()
 end
 
-function M.win_in_tab()
+local function find_win(buf)
   for _, w in ipairs(api.nvim_tabpage_list_wins(0)) do
-    if api.nvim_win_get_buf(w) == M.buf then
+    if api.nvim_win_get_buf(w) == buf then
       return w
     end
   end
 end
+
+---The file list window in the current tab.
+function M.win_in_tab()
+  return M.buf and find_win(M.buf)
+end
+
+function M.header_win_in_tab()
+  return M.hbuf and find_win(M.hbuf)
+end
+
+---Whether `buf` is one of the panel's own buffers (list, header, commit box).
+function M.is_panel_buf(buf)
+  return buf == M.buf or buf == M.hbuf or buf == require('nice-git.commit').buf
+end
+
+-- Actions ------------------------------------------------------------------------------------
 
 -- Stage or unstage a file row, or a whole section when given a section row.
 local function toggle_stage(row)
@@ -108,143 +125,404 @@ local function discard(row)
   end
 end
 
----Rows are plain tables:
----  text, hls = { {start_col, end_col, group} }, click = fn(row)
----  virt = { {text, group} }        non-clickable right-aligned chunks (e.g. status letter)
----  right = { {label, group, fn} }  right-aligned buttons, each BUTTON_WIDTH cells
----  buttons = { {start_col, end_col, fn} }  clickable byte ranges of `text`
----  section, entry                  for staging and drag and drop
-local function build()
+-- Opens the working file in the editor area (the first window that isn't part of the panel).
+local function open_file(row)
+  local path = state().root .. '/' .. row.entry.path
+  for _, w in ipairs(api.nvim_tabpage_list_wins(0)) do
+    local b = api.nvim_win_get_buf(w)
+    if not M.is_panel_buf(b) and api.nvim_win_get_config(w).relative == '' and not vim.wo[w].winfixbuf then
+      api.nvim_set_current_win(w)
+      return vim.cmd.edit(vim.fn.fnameescape(path))
+    end
+  end
+  vim.cmd('botright vsplit ' .. vim.fn.fnameescape(path))
+end
+
+local function open_changes(row)
+  require('nice-git.diff').open(state(), row)
+end
+
+local function file_menu(row)
+  local staged = row.section == 'staged'
+  local items = {
+    { icons().compare, 'Open Changes', open_changes },
+    { icons().open_file, 'Open File', open_file },
+    { staged and icons().remove or icons().add, staged and 'Unstage Changes' or 'Stage Changes', toggle_stage },
+  }
+  if not staged then
+    table.insert(items, { icons().discard, 'Discard Changes', discard })
+  end
+  table.insert(items, {
+    icons().copy,
+    'Copy Relative Path',
+    function()
+      vim.fn.setreg('+', row.entry.path)
+      vim.fn.setreg('"', row.entry.path)
+    end,
+  })
+  ui.select(items, {
+    prompt = vim.fs.basename(row.entry.path),
+    format_item = function(i)
+      return i[2]
+    end,
+    icon = function(i)
+      return i[1]
+    end,
+  }, function(choice)
+    if choice then
+      choice[3](row)
+    end
+  end)
+end
+
+-- Rows ---------------------------------------------------------------------------------------
+-- A row is a table:
+--   text, hls = { {start_col, end_col, group} }, band = true for section title bands
+--   right = { item... } right-aligned, each item { chunks = {{text, hl}...}, fn?, tip?, hover? }
+--           (`hover` items only show on the hovered row and the cursor row)
+--   buttons = { {start_col, end_col, fn, tip?} } clickable byte ranges of `text`
+--   click(row), menu(row), section, entry
+
+local function button(icon, tip, fn)
+  return { chunks = { { ' ' .. icon .. ' ', 'NiceGitAccent' } }, fn = fn, tip = tip, hover = true }
+end
+
+local function width_of(item)
+  local w = 0
+  for _, c in ipairs(item.chunks) do
+    w = w + api.nvim_strwidth(c[1])
+  end
+  return w
+end
+
+-- Which row lines currently show their hover-only items.
+local active = { hover = nil, cursor = nil }
+
+---@param force? boolean include hover-only items regardless of hover/cursor
+local function visible_right(row, line, force)
+  local out = {}
+  for _, item in ipairs(row.right or {}) do
+    if force or not item.hover or line == active.hover or line == active.cursor then
+      table.insert(out, item)
+    end
+  end
+  return out
+end
+
+local function draw_right(buf, rows, line)
+  local row = rows[line]
+  if not row then
+    return
+  end
+  api.nvim_buf_clear_namespace(buf, ns_right, line - 1, line)
+  local chunks = {}
+  for _, item in ipairs(visible_right(row, line)) do
+    vim.list_extend(chunks, item.chunks)
+  end
+  if #chunks > 0 then
+    table.insert(chunks, { ' ', 'NiceGitDim' })
+    api.nvim_buf_set_extmark(buf, ns_right, line - 1, 0, {
+      virt_text = chunks,
+      virt_text_pos = 'right_align',
+      hl_mode = 'combine',
+    })
+  end
+end
+
+local function draw(buf, rows)
+  if not (buf and api.nvim_buf_is_valid(buf)) then
+    return
+  end
+  local lines = {}
+  for i, row in ipairs(rows) do
+    lines[i] = row.text
+  end
+  vim.bo[buf].modifiable = true
+  api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+  vim.bo[buf].modifiable = false
+  for _, n in ipairs({ ns, ns_right }) do
+    api.nvim_buf_clear_namespace(buf, n, 0, -1)
+  end
+  for i, row in ipairs(rows) do
+    if row.band then
+      api.nvim_buf_set_extmark(buf, ns, i - 1, 0, { line_hl_group = 'NiceGitBand', priority = 50 })
+    end
+    for _, h in ipairs(row.hls or {}) do
+      api.nvim_buf_set_extmark(buf, ns, i - 1, h[1], { end_col = h[2], hl_group = h[3], priority = 120 })
+    end
+    draw_right(buf, rows, i)
+  end
+end
+
+---What is under the mouse in a row: a right-aligned item, a text button, or nothing. The row
+---under the pointer always shows its hover buttons, even if no hover event arrived first.
+local function hit(row, line, pos)
+  local from_right = api.nvim_win_get_width(pos.winid) - pos.wincol - 1 -- trailing pad cell
+  local items = visible_right(row, line, true)
+  local acc = 0
+  for i = #items, 1, -1 do
+    local w = width_of(items[i])
+    if from_right >= acc and from_right < acc + w then
+      return items[i].fn and items[i]
+    end
+    acc = acc + w
+  end
+  for _, b in ipairs(row.buttons or {}) do
+    if pos.column > b[1] and pos.column <= b[2] then
+      return { fn = b[3], tip = b[4] }
+    end
+  end
+end
+
+-- Header ---------------------------------------------------------------------------------------
+
+local spinner = { frame = 1 }
+
+-- A full-width pill: " ╭ label … │ ▾ ╮ " with the label part and the menu part clickable.
+local function commit_button(width, label, on_commit, on_menu)
+  local cap_l, cap_r = icons().pill_left, icons().pill_right
+  local menu = ' ' .. icons().expanded .. ' '
+  local inner = width - 4 - api.nvim_strwidth(menu) - 1 -- margins, caps, menu part, separator
+  local lw = api.nvim_strwidth(label)
+  local left = math.max(0, math.floor((inner - lw) / 2))
+  local main = (' '):rep(left) .. label .. (' '):rep(math.max(0, inner - lw - left))
+  local text = ' ' .. cap_l .. main .. '│' .. menu .. cap_r .. ' '
+  local a = 1 + #cap_l -- start of main
+  local s = a + #main -- separator
+  local m = s + #'│' -- menu
+  local e = m + #menu -- right cap
+  return {
+    text = text,
+    hls = {
+      { 1, a, 'NiceGitPillEdge' },
+      { a, e, 'NiceGitPill' },
+      { e, e + #cap_r, 'NiceGitPillEdge' },
+    },
+    buttons = {
+      { a, s, function()
+        on_commit()
+      end, 'Commit' },
+      { m, e, on_menu, 'More commit actions' },
+    },
+  }
+end
+
+local function soft_pills(prefix, list)
+  local text, hls, buttons = prefix, {}, {}
+  for _, p in ipairs(list) do
+    text = text .. ' '
+    local start = #text
+    text = text .. icons().pill_left .. ' ' .. p[1] .. ' ' .. icons().pill_right
+    table.insert(hls, { start, start + #icons().pill_left, 'NiceGitPillSoftEdge' })
+    table.insert(hls, { start + #icons().pill_left, #text - #icons().pill_right, 'NiceGitPillSoft' })
+    table.insert(hls, { #text - #icons().pill_right, #text, 'NiceGitPillSoftEdge' })
+    table.insert(buttons, { start, #text, p[2], p[3] })
+  end
+  return text, hls, buttons
+end
+
+local function commit_menu()
+  local commit = require('nice-git.commit')
+  local actions = require('nice-git.actions')
+  local items = {
+    { icons().check, 'Commit', commit.commit },
+    { icons().edit, 'Commit (Amend)', function()
+      commit.commit({ amend = true })
+    end },
+    { icons().check, 'Commit All (stage everything tracked)', function()
+      commit.commit({ all = true })
+    end },
+    { icons().history, 'Edit Last Commit Message', commit.toggle_amend },
+    { icons().stash, 'Stash All Changes', actions.stash },
+  }
+  ui.select(items, {
+    prompt = 'Commit',
+    format_item = function(i)
+      return i[2]
+    end,
+    icon = function(i)
+      return i[1]
+    end,
+  }, function(choice)
+    if choice then
+      choice[3]()
+    end
+  end)
+end
+
+local function build_header(width)
   local st = state().status
   local commit = require('nice-git.commit')
+  local actions = require('nice-git.actions')
   local rows = {}
-  local function add(row)
-    row.hls = row.hls or {}
-    table.insert(rows, row)
-    return row
+  for _ = 1, commit.height() + 2 do
+    table.insert(rows, { text = '' }) -- space under the commit box float
   end
 
-  local actions = require('nice-git.actions')
-  for _, win in ipairs(vim.fn.win_findbuf(M.buf)) do
-    vim.wo[win].winbar = '%#NiceGitSection# SOURCE CONTROL %#NiceGitPath#' .. vim.fs.basename(state().root):gsub('%%', '%%%%')
-  end
-  local branch = ' ⎇ ' .. (st.branch == '(detached)' and 'detached HEAD' or st.branch or '?')
-  local head = branch
-  if st.ahead then
-    head = head .. ('  ↑%d ↓%d'):format(st.ahead, st.behind)
-  end
+  local label = icons().check .. '  ' .. (commit.amend and 'Amend Commit' or st.operation == 'merge' and 'Commit Merge' or 'Commit')
+  table.insert(rows, commit_button(width, label, commit.commit, commit_menu))
+
+  local name = st.branch == '(detached)' and 'detached HEAD' or st.branch or '?'
+  local branch = '  ' .. icons().branch .. ' ' .. name
+  local text, hls = branch, { { 2, #branch, 'NiceGitAccent' } }
   if actions.busy then
-    head = head .. '  ' .. actions.busy .. '…'
+    local status = '  ' .. icons().spinner[spinner.frame] .. ' ' .. actions.busy .. '…'
+    table.insert(hls, { #text, #text + #status, 'NiceGitDim' })
+    text = text .. status
+  elseif st.ahead then
+    local counts = ('  %s%d %s%d'):format(icons().pull, st.behind, icons().push, st.ahead)
+    table.insert(hls, { #text, #text + #counts, 'NiceGitDim' })
+    text = text .. counts
   end
-  add({
-    text = head,
-    hls = { { 0, #branch, 'NiceGitHeader' }, { #branch, #head, 'NiceGitCount' } },
-    buttons = { { 0, #branch, actions.switch_branch } },
+  local function hdr_btn(icon, tip, fn)
+    return { chunks = { { ' ' .. icon .. ' ', 'NiceGitDim' } }, fn = fn, tip = tip }
+  end
+  table.insert(rows, {
+    text = text,
+    hls = hls,
+    buttons = { { 2, #branch, actions.switch_branch, 'Switch branch' } },
     right = {
-      { ' ☰ ', 'NiceGitButton', require('nice-git.log').open },
-      { ' ⟳ ', 'NiceGitButton', actions.fetch },
-      { ' ↓ ', 'NiceGitButton', actions.pull },
-      { ' ↑ ', 'NiceGitButton', actions.push },
+      hdr_btn(icons().fetch, 'Fetch', actions.fetch),
+      hdr_btn(icons().pull, 'Pull', actions.pull),
+      hdr_btn(icons().push, 'Push', actions.push),
     },
   })
 
   if st.operation then
-    local label = ' ⚠ ' .. st.operation:upper() .. ' '
-    local line, buttons = label, {}
-    local ops = { { ' Continue ', actions.continue }, { ' Abort ', actions.abort } }
+    local ops = { { 'Continue', actions.continue, 'Continue the ' .. st.operation } }
     if st.operation == 'rebase' or st.operation == 'cherry-pick' then
-      table.insert(ops, 2, { ' Skip ', actions.skip })
+      table.insert(ops, { 'Skip', actions.skip, 'Skip this commit' })
     end
-    local hls = { { 0, #label, 'NiceGitOperation' } }
-    for _, op in ipairs(ops) do
-      line = line .. ' '
-      table.insert(buttons, { #line, #line + #op[1], op[2] })
-      table.insert(hls, { #line, #line + #op[1], 'NiceGitButton' })
-      line = line .. op[1]
-    end
-    add({ text = line, hls = hls, buttons = buttons })
+    table.insert(ops, { 'Abort', actions.abort, 'Abort the ' .. st.operation })
+    local prefix = '  ' .. icons().warning .. ' ' .. st.operation:upper()
+    local t, h, b = soft_pills(prefix, ops)
+    table.insert(h, 1, { 0, #prefix, 'NiceGitModified' })
+    table.insert(rows, { text = t, hls = h, buttons = b })
   end
-
   if st.superproject then
-    local text = '   ↖ Parent repository'
-    add({
-      text = text,
-      hls = { { 0, #text, 'NiceGitButton' } },
+    local t = '  ' .. icons().repo .. '  Parent repository'
+    table.insert(rows, {
+      text = t,
+      hls = { { 0, #t, 'NiceGitAccent' } },
       click = function()
         require('nice-git').switch_repo(st.superproject)
       end,
     })
   end
+  return rows
+end
 
-  local btn = ' ✓ Commit '
-  local amend = commit.amend and ' ☑ Amend ' or ' ☐ Amend '
-  local stash = ' ⊟ Stash '
-  local text = ' ' .. btn .. ' ' .. amend .. ' ' .. stash
-  local a = 1 + #btn + 1
-  local s = a + #amend + 1
-  add({
-    text = text,
-    hls = { { 1, 1 + #btn, 'NiceGitCommitButton' }, { a, a + #amend, 'NiceGitButton' }, { s, #text, 'NiceGitButton' } },
-    buttons = { { 1, 1 + #btn, commit.commit }, { a, a + #amend, commit.toggle_amend }, { s, #text, actions.stash } },
-  })
+-- Winbar of the header: title, repo name, and icon buttons.
+local PANEL_ACTIONS = {}
+_G.NiceGitPanelClick = function(id)
+  if PANEL_ACTIONS[id] then
+    vim.schedule(PANEL_ACTIONS[id])
+  end
+end
 
-  local any = false
-  for _, sec in ipairs(SECTIONS) do
-    local entries = st[sec.key]
-    if #entries > 0 then
-      any = true
-      local right = sec.key == 'staged' and { { ' − ', 'NiceGitButton', toggle_stage } }
-        or { { ' ↺ ', 'NiceGitButton', discard }, { ' + ', 'NiceGitButton', toggle_stage } }
-      local title = (M.collapsed[sec.key] and ' ▸ ' or ' ▾ ') .. sec.title
-      add({
-        text = title,
-        section = sec.key,
-        hls = { { 0, #title, 'NiceGitSection' } },
-        virt = { { ' ' .. #entries .. ' ', 'NiceGitCount' } },
-        right = right,
-        click = function()
-          M.collapsed[sec.key] = not M.collapsed[sec.key]
-          M.render()
-        end,
-      })
-      if not M.collapsed[sec.key] then
-        for _, e in ipairs(entries) do
-          local icon, icon_hl = file_icon(e.path)
-          local name = vim.fs.basename(e.path)
-          local dir = vim.fs.dirname(e.path)
-          local st_char, st_hl = unpack(STATUS[e.status] or { e.status, 'NiceGitModified' })
-          local prefix = '   ' .. icon .. ' '
-          local line = prefix .. name .. (dir ~= '.' and ' ' .. dir or '')
-          add({
-            text = line,
-            section = sec.key,
-            entry = e,
-            hls = {
-              { 3, #prefix - 1, icon_hl },
-              { #prefix, #prefix + #name, st_hl },
-              { #prefix + #name, #line, 'NiceGitPath' },
-            },
-            virt = { { st_char .. ' ', st_hl } },
-            right = right,
-            click = function(row)
-              require('nice-git.diff').open(state(), row)
-            end,
-          })
-        end
-      end
+local function winbar()
+  local function b(id, icon)
+    return ('%%%d@v:lua.NiceGitPanelClick@ %s %%X'):format(id, icon)
+  end
+  local repo = vim.fs.basename(state().root or ''):gsub('%%', '%%%%')
+  return '%#NiceGitPanelTitle#  SOURCE CONTROL %#NiceGitDim#' .. repo .. '%=%#NiceGitDim#'
+    .. b(1, icons().history)
+    .. b(2, icons().refresh)
+    .. b(3, icons().more)
+    .. ' '
+end
+
+local function more_menu()
+  local actions = require('nice-git.actions')
+  local items = {
+    { icons().fetch, 'Fetch', actions.fetch },
+    { icons().pull, 'Pull', actions.pull },
+    { icons().push, 'Push', actions.push },
+    { icons().branch, 'Switch Branch…', actions.switch_branch },
+    { icons().stash, 'Stash All Changes', actions.stash },
+    { icons().split, 'Toggle Inline / Side-by-side Diff', require('nice-git.diff').toggle_mode },
+    { icons().close, 'Close Panel', M.close },
+  }
+  ui.select(items, {
+    prompt = 'Source Control',
+    format_item = function(i)
+      return i[2]
+    end,
+    icon = function(i)
+      return i[1]
+    end,
+  }, function(choice)
+    if choice then
+      choice[3]()
     end
+  end)
+end
+
+PANEL_ACTIONS[1] = function()
+  require('nice-git.log').open()
+end
+PANEL_ACTIONS[2] = function()
+  require('nice-git').refresh()
+end
+PANEL_ACTIONS[3] = more_menu
+
+function M.render_header()
+  local hwin = M.header_win_in_tab()
+  if not (M.hbuf and api.nvim_buf_is_valid(M.hbuf) and state().status) then
+    return
   end
-  if not any then
-    add({ text = '   No changes', hls = { { 0, 13, 'NiceGitEmpty' } } })
+  local width = hwin and api.nvim_win_get_width(hwin) or require('nice-git').config.width
+  M.header_rows = build_header(width)
+  draw(M.hbuf, M.header_rows)
+  for _, w in ipairs(vim.fn.win_findbuf(M.hbuf)) do
+    vim.wo[w].winbar = winbar()
+    api.nvim_win_set_height(w, #M.header_rows + 1) -- the winbar takes a row of the height
+    -- The header never scrolls: the commit box float sits over its first lines.
+    api.nvim_win_call(w, function()
+      vim.fn.winrestview({ topline = 1 })
+    end)
+  end
+  require('nice-git.commit').layout()
+
+  -- Keep the spinner turning while a remote operation runs.
+  local busy = require('nice-git.actions').busy
+  if busy and not spinner.timer then
+    spinner.timer = assert(vim.uv.new_timer())
+    spinner.timer:start(100, 100, vim.schedule_wrap(function()
+      spinner.frame = spinner.frame % #icons().spinner + 1
+      M.render_header()
+    end))
+  elseif not busy and spinner.timer then
+    spinner.timer:stop()
+    spinner.timer:close()
+    spinner.timer = nil
+  end
+end
+
+-- List -----------------------------------------------------------------------------------------
+
+local function build_list()
+  local st = state().status
+  local actions = require('nice-git.actions')
+  local rows = {}
+  local function add(row)
+    table.insert(rows, row)
+    return row
   end
 
-  -- Collapsible section with a title row; `fill` adds its rows when expanded.
+  -- Collapsible band with a title; `fill` adds the rows below it when expanded.
   local function section(key, title, count, right, fill, on_expand)
-    local text = (M.collapsed[key] and ' ▸ ' or ' ▾ ') .. title
+    local text = ' ' .. (M.collapsed[key] and icons().collapsed or icons().expanded) .. ' ' .. title
+    right = vim.list_slice(right or {})
+    if count ~= '' then
+      local pill = theme.pill(tostring(count), true)
+      table.insert(right, { chunks = pill })
+    end
     add({
       text = text,
-      hls = { { 0, #text, 'NiceGitSection' } },
-      virt = { { ' ' .. count .. ' ', 'NiceGitCount' } },
+      band = true,
+      section = key,
+      hls = { { 0, #text, 'NiceGitBand' } },
       right = right,
       click = function()
         M.collapsed[key] = not M.collapsed[key]
@@ -259,21 +537,67 @@ local function build()
     end
   end
 
-  local worktrees = st.worktrees or {}
+  local any = false
+  for _, sec in ipairs(SECTIONS) do
+    local entries = st[sec.key]
+    if #entries > 0 then
+      any = true
+      local staged = sec.key == 'staged'
+      local stage_btn = staged and button(icons().remove, 'Unstage', toggle_stage) or button(icons().add, 'Stage', toggle_stage)
+      local section_right = staged and { button(icons().remove, 'Unstage All', toggle_stage) }
+        or { button(icons().discard, 'Discard All', discard), button(icons().add, 'Stage All', toggle_stage) }
+      section(sec.key, sec.title, #entries, section_right, function()
+        for _, e in ipairs(entries) do
+          local icon, icon_hl = file_icon(e.path)
+          local name = vim.fs.basename(e.path)
+          local dir = vim.fs.dirname(e.path)
+          local st_char, st_hl = unpack(STATUS[e.status] or { e.status, 'NiceGitModified' })
+          local prefix = '    ' .. icon .. ' '
+          local line = prefix .. name .. (dir ~= '.' and '  ' .. dir or '')
+          local right = { button(icons().open_file, 'Open File', open_file) }
+          if not staged then
+            table.insert(right, button(icons().discard, sec.key == 'untracked' and 'Delete File' or 'Discard Changes', discard))
+          end
+          table.insert(right, stage_btn)
+          table.insert(right, { chunks = { { ' ' .. st_char .. ' ', st_hl } } })
+          add({
+            text = line,
+            section = sec.key,
+            entry = e,
+            hls = {
+              { 4, #prefix - 1, icon_hl or 'NiceGitDim' },
+              { #prefix, #prefix + #name, st_hl },
+              { #prefix + #name, #line, 'NiceGitDim' },
+            },
+            right = right,
+            click = open_changes,
+            menu = file_menu,
+          })
+        end
+      end)
+    end
+  end
+  if not any then
+    local text = '    ' .. icons().check .. '  No changes'
+    add({ text = text, hls = { { 0, #text, 'NiceGitDim' } } })
+    add({ text = '' })
+  end
+
   local root = state().root
-  section('worktrees', 'WORKTREES', #worktrees, { { ' + ', 'NiceGitButton', actions.add_worktree } }, function()
+  local worktrees = st.worktrees or {}
+  section('worktrees', 'WORKTREES', #worktrees, { button(icons().add, 'Add Worktree', actions.add_worktree) }, function()
     for i, wt in ipairs(worktrees) do
       local current = wt.path == root
       local name = wt.branch or (wt.bare and '(bare)') or '(detached)'
-      local prefix = current and '   ● ' or '   ⌂ '
-      local line = prefix .. name .. ' ' .. vim.fn.fnamemodify(wt.path, ':~')
+      local prefix = '    ' .. (current and icons().dot or icons().worktree) .. ' '
+      local line = prefix .. name .. '  ' .. vim.fn.fnamemodify(wt.path, ':~')
       add({
         text = line,
-        hls = { { 3, #prefix, current and 'NiceGitAdded' or 'NiceGitPath' }, { #prefix + #name, #line, 'NiceGitPath' } },
+        hls = { { 4, #prefix, current and 'NiceGitAdded' or 'NiceGitDim' }, { #prefix + #name, #line, 'NiceGitDim' } },
         -- The first entry is the main worktree, which can't be removed.
-        right = (i > 1 and not current) and { { ' ✕ ', 'NiceGitButton', function()
+        right = (i > 1 and not current) and { button(icons().trash, 'Remove Worktree', function()
           actions.remove_worktree(wt)
-        end } } or nil,
+        end) } or nil,
         click = not current and function()
           require('nice-git').switch_repo(wt.path)
         end or nil,
@@ -285,13 +609,14 @@ local function build()
   if #submodules > 0 then
     section('submodules', 'SUBMODULES', #submodules, nil, function()
       for _, sm in ipairs(submodules) do
-        local line = '   ▣ ' .. sm.path .. (sm.state ~= 'ok' and ' ' .. sm.state or '')
+        local prefix = '    ' .. icons().repo .. ' '
+        local line = prefix .. sm.path .. (sm.state ~= 'ok' and '  ' .. sm.state or '')
         add({
           text = line,
-          hls = { { 3, 6, 'NiceGitPath' }, { 7 + #sm.path, #line, sm.state == 'ok' and 'NiceGitPath' or 'NiceGitModified' } },
-          right = { { ' ⟳ ', 'NiceGitButton', function()
+          hls = { { 4, #prefix, 'NiceGitDim' }, { #prefix + #sm.path, #line, sm.state == 'ok' and 'NiceGitDim' or 'NiceGitModified' } },
+          right = { button(icons().refresh, 'Update Submodule', function()
             actions.update_submodule(sm)
-          end } },
+          end) },
           click = function()
             require('nice-git').switch_repo(root .. '/' .. sm.path)
           end,
@@ -303,32 +628,39 @@ local function build()
   local github = require('nice-git.github')
   if github.available() then
     local prs = github.prs.root == root and github.prs or {}
-    local right = {
-      { ' + ', 'NiceGitButton', github.create },
-      { ' ⟳ ', 'NiceGitButton', github.load },
-    }
+    local right = { button(icons().pr_create, 'Create Pull Request', github.create), button(icons().refresh, 'Reload', github.load) }
     section('prs', 'PULL REQUESTS', prs.list and #prs.list or '', right, function()
       local function note(text, hl)
-        add({ text = '   ' .. text, hls = { { 0, 3 + #text, hl } } })
+        add({ text = '    ' .. text, hls = { { 0, 4 + #text, hl } } })
       end
       if prs.loading then
-        note('Loading…', 'NiceGitEmpty')
+        note(icons().spinner[1] .. ' Loading…', 'NiceGitDim')
       elseif prs.error then
-        note((prs.error:gsub('\n.*', '')), 'NiceGitConflict')
+        note(icons().error .. ' ' .. prs.error:gsub('\n.*', ''), 'NiceGitConflict')
       elseif prs.list and #prs.list == 0 then
-        note('No open pull requests', 'NiceGitEmpty')
+        note('No open pull requests', 'NiceGitDim')
       end
       for _, pr in ipairs(prs.list or {}) do
+        local prefix = '    ' .. icons().pr .. ' '
         local num = '#' .. pr.number
-        local line = '   ' .. num .. ' ' .. pr.title
+        local line = prefix .. num .. ' ' .. pr.title
+        local hls = { { 4, #prefix, pr.isDraft and 'NiceGitDim' or 'NiceGitAdded' }, { #prefix, #prefix + #num, 'NiceGitDim' } }
+        if pr.isDraft then
+          table.insert(hls, { #prefix + #num, #line, 'NiceGitDim' })
+        end
         add({
           text = line,
-          hls = { { 3, 3 + #num, 'NiceGitHash' }, pr.isDraft and { 4 + #num, #line, 'NiceGitPath' } or nil },
-          virt = { { (pr.author and pr.author.login or '') .. ' ', 'NiceGitPath' } },
-          right = { { ' ↗ ', 'NiceGitButton', function()
-            github.browse(pr)
-          end } },
+          hls = hls,
+          right = {
+            button(icons().external, 'Open in Browser', function()
+              github.browse(pr)
+            end),
+            { chunks = { { (pr.author and pr.author.login or '') .. ' ', 'NiceGitDim' } } },
+          },
           click = function()
+            github.menu(pr)
+          end,
+          menu = function()
             github.menu(pr)
           end,
         })
@@ -340,18 +672,19 @@ local function build()
   if #stashes > 0 then
     section('stashes', 'STASHES', #stashes, nil, function()
       for _, stash in ipairs(stashes) do
-        local line = '   ≡ ' .. stash.message
+        local prefix = '    ' .. icons().stash .. ' '
+        local line = prefix .. stash.message
         add({
           text = line,
           stash = stash,
-          hls = { { 3, 6, 'NiceGitPath' } },
+          hls = { { 4, #prefix, 'NiceGitDim' } },
           right = {
-            { ' ↓ ', 'NiceGitButton', function()
+            button(icons().pull, 'Apply Stash', function()
               actions.stash_apply(stash)
-            end },
-            { ' ✕ ', 'NiceGitButton', function()
+            end),
+            button(icons().close, 'Drop Stash', function()
               actions.stash_drop(stash)
-            end },
+            end),
           },
           click = function()
             actions.show_stash(stash)
@@ -364,60 +697,36 @@ local function build()
 end
 
 function M.render()
-  local buf = M.buf
-  if not (buf and api.nvim_buf_is_valid(buf) and state().status) then
+  if not (M.buf and api.nvim_buf_is_valid(M.buf) and state().status) then
     return
   end
-  local rows = build()
-  local lines = {}
-  for i, row in ipairs(rows) do
-    lines[i] = row.text
-  end
-  vim.bo[buf].modifiable = true
-  api.nvim_buf_set_lines(buf, 0, -1, false, lines)
-  vim.bo[buf].modifiable = false
-  api.nvim_buf_clear_namespace(buf, ns, 0, -1)
-  for i, row in ipairs(rows) do
-    for _, h in ipairs(row.hls) do
-      api.nvim_buf_set_extmark(buf, ns, i - 1, h[1], { end_col = h[2], hl_group = h[3] })
-    end
-    local virt = vim.list_extend({}, row.virt or {})
-    for _, b in ipairs(row.right or {}) do
-      table.insert(virt, { b[1], b[2] })
-    end
-    if #virt > 0 then
-      api.nvim_buf_set_extmark(buf, ns, i - 1, 0, { virt_text = virt, virt_text_pos = 'right_align' })
-    end
-  end
-  M.rows = rows
+  M.rows = build_list()
+  active.hover = nil
+  api.nvim_buf_clear_namespace(M.buf, ns_hover, 0, -1)
+  draw(M.buf, M.rows)
+  M.render_header()
   require('nice-git.commit').update_placeholder()
 end
 
-local function row_at(pos)
-  if pos.winid ~= 0 and api.nvim_win_get_buf(pos.winid) == M.buf and pos.line > 0 then
-    return M.rows[pos.line]
-  end
-end
+-- Mouse ----------------------------------------------------------------------------------------
 
-local function cursor_row()
-  return M.rows[api.nvim_win_get_cursor(0)[1]]
-end
-
--- Runs whatever sits under the mouse: a right-aligned button, a text button, or the row itself.
-local function click(row, pos)
-  local from_right = api.nvim_win_get_width(pos.winid) - pos.wincol
-  local right = row.right or {}
-  local idx = #right - math.floor(from_right / BUTTON_WIDTH)
-  if idx >= 1 and idx <= #right then
-    return right[idx][3](row)
+local function set_active(key, line)
+  if active[key] == line then
+    return
   end
-  for _, b in ipairs(row.buttons or {}) do
-    if pos.column > b[1] and pos.column <= b[2] then
-      return b[3](row)
+  local old = active[key]
+  active[key] = line
+  if key == 'hover' then
+    api.nvim_buf_clear_namespace(M.buf, ns_hover, 0, -1)
+    if line and M.rows[line] and (M.rows[line].click or M.rows[line].entry) then
+      api.nvim_buf_set_extmark(M.buf, ns_hover, line - 1, 0, { line_hl_group = 'NiceGitHover', priority = 60 })
     end
   end
-  if row.click then
-    row.click(row)
+  if old then
+    draw_right(M.buf, M.rows, old)
+  end
+  if line then
+    draw_right(M.buf, M.rows, line)
   end
 end
 
@@ -426,82 +735,76 @@ local function crosses(from, to)
   return to and to.section and (from.section == 'staged') ~= (to.section == 'staged')
 end
 
--- { row, moved } while dragging a file; false after a press elsewhere in the panel; nil when the
--- press happened in another window (our <LeftMouse> mapping only fires once the panel has focus).
-local drag
-
-local function show_drop_target(target)
+local function show_drop_target(row, target)
   api.nvim_buf_clear_namespace(M.buf, ns_drop, 0, -1)
-  if not (drag and crosses(drag.row, target)) then
+  if not (row and crosses(row, target)) then
     return
   end
-  for l, row in ipairs(M.rows) do
-    if row.section == target.section then
-      api.nvim_buf_set_extmark(M.buf, ns_drop, l - 1, 0, { line_hl_group = 'NiceGitDropTarget' })
+  for l, r in ipairs(M.rows) do
+    if r.section == target.section then
+      api.nvim_buf_set_extmark(M.buf, ns_drop, l - 1, 0, { line_hl_group = 'NiceGitDropTarget', priority = 70 })
     end
   end
 end
 
-local function on_mouse()
-  local pos = vim.fn.getmousepos()
-  local row = pos.wincol <= api.nvim_win_get_width(pos.winid) and row_at(pos) -- not the separator
-  drag = row and row.entry and { row = row, moved = false } or false
-  return '<LeftMouse>'
+local function click_in(rows)
+  return function(pos)
+    local row = rows()[pos.line]
+    if not row then
+      return
+    end
+    local target = hit(row, pos.line, pos)
+    if target then
+      target.fn(row)
+    elseif row.click then
+      row.click(row)
+    end
+  end
 end
 
-local function on_drag()
-  if drag == nil then
-    -- Pressed while another window had focus: the default click already put the cursor on the row.
-    local row = cursor_row()
-    drag = row and row.entry and { row = row, moved = false } or false
-  end
-  if not drag then
-    return '<LeftDrag>' -- e.g. resizing the window separator
-  end
-  drag.moved = true
-  local target = row_at(vim.fn.getmousepos())
-  vim.schedule(function()
-    show_drop_target(target)
+local function cursor_row()
+  return M.rows[api.nvim_win_get_cursor(0)[1]]
+end
+
+local function setup_list_buf(buf)
+  ui.clickable(buf, {
+    click = click_in(function()
+      return M.rows
+    end),
+    draggable = function(pos)
+      local row = M.rows[pos.line]
+      return row and row.entry and row
+    end,
+    dragging = function(row, pos)
+      show_drop_target(row, row and M.rows[pos.line])
+    end,
+    drop = function(row, pos)
+      if crosses(row, M.rows[pos.line]) then
+        toggle_stage(row)
+      end
+    end,
+    right_click = function(pos)
+      local row = M.rows[pos.line]
+      if row and row.menu then
+        row.menu(row)
+      end
+    end,
+  })
+  ui.on_hover(buf, function(pos)
+    set_active('hover', pos and pos.line)
+    local row = pos and M.rows[pos.line]
+    local target = row and hit(row, pos.line, pos)
+    return target and target.tip
   end)
-  return ''
-end
+  api.nvim_create_autocmd('CursorMoved', {
+    buffer = buf,
+    callback = function()
+      set_active('cursor', api.nvim_win_get_cursor(0)[1])
+    end,
+  })
 
--- Clicks are handled on release so a click from another window (which first focuses the panel)
--- still acts in one go, and so a press can turn into a drag.
-local function on_release()
-  if vim.fn.mode() == 'i' then
-    vim.cmd.stopinsert()
-  end
-  local pos = vim.fn.getmousepos()
-  local d = drag
-  drag = nil
-  api.nvim_buf_clear_namespace(M.buf, ns_drop, 0, -1)
-  local row = row_at(pos)
-  if not row then
-    return
-  end
-  if d and d.moved then
-    if crosses(d.row, row) then
-      toggle_stage(d.row)
-    end
-    return
-  end
-  click(row, pos)
-end
-
-local function ensure_buf()
-  if M.buf and api.nvim_buf_is_valid(M.buf) then
-    return M.buf
-  end
-  local buf = api.nvim_create_buf(false, true)
-  api.nvim_buf_set_name(buf, 'nice-git://status')
-  vim.bo[buf].filetype = 'nice-git'
-  vim.bo[buf].modifiable = false
-  M.buf = buf
-
-  local function map(modes, lhs, rhs, desc, opts)
-    opts = vim.tbl_extend('force', { buffer = buf, nowait = true, silent = true, desc = desc }, opts or {})
-    vim.keymap.set(modes, lhs, rhs, opts)
+  local function map(lhs, rhs, desc)
+    vim.keymap.set('n', lhs, rhs, { buffer = buf, nowait = true, silent = true, desc = desc })
   end
   local function with_row(fn)
     return function()
@@ -511,85 +814,151 @@ local function ensure_buf()
       end
     end
   end
-  -- Quick repeated clicks arrive as <2-LeftMouse> etc.; each one should act like a single click.
-  for _, n in ipairs({ '', '2-', '3-', '4-' }) do
-    map('n', '<' .. n .. 'LeftMouse>', on_mouse, nil, { expr = true })
-    map('n', '<' .. n .. 'LeftDrag>', on_drag, nil, { expr = true })
-    map({ 'n', 'i' }, '<' .. n .. 'LeftRelease>', on_release)
-  end
-  map('n', '<CR>', with_row(function(row)
+  map('<CR>', with_row(function(row)
     if row.click then
       row.click(row)
     end
-  end), 'Open diff / toggle section')
-  map('n', '-', with_row(function(row)
-    if row.section then
+  end), 'Open changes / toggle section')
+  map('-', with_row(function(row)
+    if row.section and (row.entry or row.band) then
       toggle_stage(row)
     end
   end), 'Stage / unstage')
-  map('n', 'x', with_row(function(row)
-    if row.section and row.section ~= 'staged' then
+  map('x', with_row(function(row)
+    if row.section and row.section ~= 'staged' and (row.entry or row.band) then
       discard(row)
     end
   end), 'Discard changes')
+  map('o', with_row(function(row)
+    if row.entry then
+      open_file(row)
+    end
+  end), 'Open file')
+  map('m', with_row(function(row)
+    if row.menu then
+      row.menu(row)
+    end
+  end), 'Menu')
+end
+
+-- Keys shared by the list and the header.
+local function setup_common_keys(buf)
   local actions = require('nice-git.actions')
-  map('n', 'b', actions.switch_branch, 'Switch branch')
-  map('n', 'l', require('nice-git.log').open, 'History')
-  map('n', 'f', actions.fetch, 'Fetch')
-  map('n', 'p', actions.pull, 'Pull')
-  map('n', 'P', actions.push, 'Push')
-  map('n', 'c', function()
+  local function map(lhs, rhs, desc)
+    vim.keymap.set('n', lhs, rhs, { buffer = buf, nowait = true, silent = true, desc = desc })
+  end
+  map('b', actions.switch_branch, 'Switch branch')
+  map('l', require('nice-git.log').open, 'History')
+  map('f', actions.fetch, 'Fetch')
+  map('p', actions.pull, 'Pull')
+  map('P', actions.push, 'Push')
+  map('c', function()
     require('nice-git.commit').focus()
   end, 'Write commit message')
-  map('n', 'R', function()
+  map('R', function()
     require('nice-git').refresh()
   end, 'Refresh')
-  map('n', 'q', M.close, 'Close panel')
-  require('nice-git.diff').map_wheel(buf)
+  map('q', M.close, 'Close panel')
+end
 
-  -- Watch the repo only while the panel is visible somewhere.
-  api.nvim_create_autocmd('BufWinEnter', {
-    buffer = buf,
-    callback = function()
-      require('nice-git').watch()
-    end,
-  })
-  api.nvim_create_autocmd('BufWinLeave', {
-    buffer = buf,
-    callback = function()
-      require('nice-git').unwatch()
-    end,
-  })
+local function new_buf(name)
+  local buf = api.nvim_create_buf(false, true)
+  api.nvim_buf_set_name(buf, name)
+  vim.bo[buf].filetype = 'nice-git'
+  vim.bo[buf].modifiable = false
   return buf
 end
 
----Opens the panel (commit box above the file list) as a full-height left column in the current
----tab and returns the file list window.
-function M.open_win()
-  local buf = ensure_buf()
-  local win = M.win_in_tab()
-  if not win then
-    win = api.nvim_open_win(buf, true, { split = 'left', win = -1, width = require('nice-git').config.width })
-    theme.style_window(win, 'panel')
-    local wo = vim.wo[win]
-    wo.wrap, wo.cursorline, wo.winfixwidth, wo.winfixbuf = false, true, true, true
+local function ensure_bufs()
+  if not (M.buf and api.nvim_buf_is_valid(M.buf)) then
+    M.buf = new_buf('nice-git://status')
+    setup_list_buf(M.buf)
+    setup_common_keys(M.buf)
+    -- Watch the repo only while the panel is visible somewhere.
+    api.nvim_create_autocmd('BufWinEnter', {
+      buffer = M.buf,
+      callback = function()
+        require('nice-git').watch()
+      end,
+    })
+    api.nvim_create_autocmd('BufWinLeave', {
+      buffer = M.buf,
+      callback = function()
+        require('nice-git').unwatch()
+      end,
+    })
   end
-  require('nice-git.commit').open_win(win)
-  if not state().status then
+  if not (M.hbuf and api.nvim_buf_is_valid(M.hbuf)) then
+    M.hbuf = new_buf('nice-git://header')
+    ui.clickable(M.hbuf, {
+      click = click_in(function()
+        return M.header_rows
+      end),
+    })
+    ui.on_hover(M.hbuf, function(pos)
+      local row = pos and M.header_rows[pos.line]
+      local target = row and hit(row, pos.line, pos)
+      return target and target.tip
+    end)
+    setup_common_keys(M.hbuf)
+  end
+end
+
+local function style(win)
+  theme.style_window(win, 'panel')
+  local wo = vim.wo[win]
+  wo.wrap, wo.winfixwidth, wo.winfixbuf = false, true, true
+end
+
+---Opens the panel as a full-height left column in the current tab and returns the list window.
+function M.open_win()
+  ensure_bufs()
+  local list = M.win_in_tab()
+  if not list then
+    list = api.nvim_open_win(M.buf, true, { split = 'left', win = -1, width = require('nice-git').config.width })
+    style(list)
+    vim.wo[list].cursorline = true
+  end
+  local header = M.header_win_in_tab()
+  if not header then
+    header = api.nvim_open_win(M.hbuf, false, { split = 'above', win = list, height = math.max(#M.header_rows + 1, 7) })
+    style(header)
+    vim.wo[header].winfixheight = true
+  end
+  require('nice-git.commit').open_win(header)
+  if state().status then
+    M.render()
+  else
     require('nice-git').refresh()
   end
-  return win
+  return list
 end
 
 function M.close()
   local commit_win = require('nice-git.commit').win_in_tab()
   if commit_win then
-    pcall(api.nvim_win_close, commit_win, false)
+    pcall(api.nvim_win_close, commit_win, true)
+  end
+  local header = M.header_win_in_tab()
+  if header then
+    pcall(api.nvim_win_close, header, false)
   end
   local win = M.win_in_tab()
   if win and not pcall(api.nvim_win_close, win, false) then
-    require('nice-git.ui').notify('cannot close the last window', vim.log.levels.WARN)
+    ui.notify('cannot close the last window', vim.log.levels.WARN)
   end
 end
+
+-- Keep the header (full-width Commit button) and commit box fitted to the panel width.
+api.nvim_create_autocmd('WinResized', {
+  group = api.nvim_create_augroup('NiceGitPanelResize', {}),
+  callback = function()
+    for _, w in ipairs(vim.v.event.windows or {}) do
+      if api.nvim_win_is_valid(w) and M.is_panel_buf(api.nvim_win_get_buf(w)) then
+        return M.render_header()
+      end
+    end
+  end,
+})
 
 return M

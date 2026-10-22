@@ -4,7 +4,7 @@ local git = require('nice-git.git')
 local M = {}
 
 M.config = {
-  width = 35,
+  width = 40,
   debounce = 100,
   diff_mode = 'split', -- or 'inline'
   native_ui = false, -- true: use vim.notify / vim.ui.select / vim.ui.input instead of nice-git's floats
