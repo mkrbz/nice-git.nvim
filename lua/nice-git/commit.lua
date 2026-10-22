@@ -20,6 +20,8 @@ end
 
 local function set_message(text)
   api.nvim_buf_set_lines(M.buf, 0, -1, false, vim.split(text, '\n', { plain = true }))
+  -- Resize right away; TextChanged only fires once the main loop gets to it.
+  require('nice-git.sidebar').render_header()
 end
 
 function M.update_placeholder()
@@ -49,9 +51,17 @@ local function ensure_buf()
     vim.keymap.set({ 'n', 'i' }, lhs, M.commit, { buffer = buf, desc = 'Commit' })
   end
   require('nice-git.diff').map_wheel(buf)
+  local height = 1
   api.nvim_create_autocmd({ 'TextChanged', 'TextChangedI', 'BufWinEnter' }, {
     buffer = buf,
-    callback = M.update_placeholder,
+    callback = function()
+      M.update_placeholder()
+      -- A taller message needs more room in the header.
+      if M.height() ~= height then
+        height = M.height()
+        require('nice-git.sidebar').render_header()
+      end
+    end,
   })
   return buf
 end
@@ -64,16 +74,49 @@ function M.win_in_tab()
   end
 end
 
----Opens the box above the panel's file list window.
-function M.open_win(list_win)
-  local buf = ensure_buf()
-  if M.win_in_tab() then
+---Lines the box shows (it grows with the message, up to 5).
+function M.height()
+  if not (M.buf and api.nvim_buf_is_valid(M.buf)) then
+    return 1
+  end
+  return math.min(math.max(api.nvim_buf_line_count(M.buf), 1), 5)
+end
+
+---Fits the box over the space the header reserves for it.
+function M.layout()
+  local win = M.win_in_tab()
+  local header = require('nice-git.sidebar').header_win_in_tab()
+  if not (win and header) then
     return
   end
-  local win = api.nvim_open_win(buf, false, { split = 'above', win = list_win, height = 3 })
-  require('nice-git.theme').style_window(win, 'input')
-  local wo = vim.wo[win]
-  wo.wrap, wo.winfixheight, wo.winfixbuf = true, true, true
+  api.nvim_win_set_config(win, {
+    relative = 'win',
+    win = header,
+    row = 0,
+    col = 1,
+    width = math.max(api.nvim_win_get_width(header) - 4, 10),
+    height = M.height(),
+  })
+end
+
+---Opens the box as a bordered float pinned to the top of the panel header.
+function M.open_win(header_win)
+  local buf = ensure_buf()
+  if not M.win_in_tab() then
+    local win = api.nvim_open_win(buf, false, {
+      relative = 'win',
+      win = header_win,
+      row = 0,
+      col = 1,
+      width = math.max(api.nvim_win_get_width(header_win) - 4, 10),
+      height = M.height(),
+      border = 'rounded',
+      zindex = 45,
+    })
+    require('nice-git.theme').style_window(win, 'input')
+    vim.wo[win].wrap, vim.wo[win].winfixbuf = true, true
+  end
+  M.layout()
   M.update_placeholder()
 end
 
@@ -104,7 +147,9 @@ function M.toggle_amend()
   rerender()
 end
 
-function M.commit()
+---@param opts? { amend?: boolean, all?: boolean }
+function M.commit(opts)
+  opts = opts or {}
   local st = state()
   local status = st.status
   if not (st.root and status and M.buf) then
@@ -113,13 +158,17 @@ function M.commit()
   local msg = message()
   -- Concluding a merge may reuse git's prepared message.
   local merging = status.operation == 'merge'
-  if msg == '' and not M.amend and not merging then
+  local amend = M.amend or opts.amend
+  if msg == '' and not amend and not merging then
     return require('nice-git.ui').notify('enter a commit message first', vim.log.levels.WARN)
   end
   local args = { 'commit' }
-  if M.amend then
+  if amend then
     table.insert(args, '--amend')
-  elseif #status.staged == 0 and not merging then
+  end
+  if opts.all then
+    table.insert(args, '--all')
+  elseif not amend and #status.staged == 0 and not merging then
     if #status.changes == 0 then
       return require('nice-git.ui').notify('nothing to commit', vim.log.levels.WARN)
     end
