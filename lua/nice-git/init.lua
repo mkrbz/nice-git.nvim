@@ -7,6 +7,8 @@ M.config = {
   width = 35,
   debounce = 100,
   diff_mode = 'split', -- or 'inline'
+  native_ui = false, -- true: use vim.notify / vim.ui.select / vim.ui.input instead of nice-git's floats
+  icons = {}, -- override any icon in lua/nice-git/theme.lua
 }
 
 ---Shared state: repo paths and the last parsed status.
@@ -57,7 +59,7 @@ function M.refresh()
   end
   git.status(root, function(status, err)
     if not status then
-      vim.notify('nice-git: ' .. err, vim.log.levels.ERROR)
+      require('nice-git.ui').notify(err, vim.log.levels.ERROR)
       return done()
     end
     status.operation = operation(M.state.gitdir)
@@ -129,7 +131,7 @@ function M.with_root(cb, dir)
   dir = dir or vim.bo.buftype == '' and file ~= '' and vim.fs.dirname(file) or vim.fn.getcwd()
   git.resolve(dir, function(root, gitdir, err)
     if not root then
-      return vim.notify('nice-git: ' .. err, vim.log.levels.WARN)
+      return require('nice-git.ui').notify(err, vim.log.levels.WARN)
     end
     if root ~= M.state.root then
       M.unwatch()

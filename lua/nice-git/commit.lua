@@ -114,14 +114,14 @@ function M.commit()
   -- Concluding a merge may reuse git's prepared message.
   local merging = status.operation == 'merge'
   if msg == '' and not M.amend and not merging then
-    return vim.notify('nice-git: enter a commit message first', vim.log.levels.WARN)
+    return require('nice-git.ui').notify('enter a commit message first', vim.log.levels.WARN)
   end
   local args = { 'commit' }
   if M.amend then
     table.insert(args, '--amend')
   elseif #status.staged == 0 and not merging then
     if #status.changes == 0 then
-      return vim.notify('nice-git: nothing to commit', vim.log.levels.WARN)
+      return require('nice-git.ui').notify('nothing to commit', vim.log.levels.WARN)
     end
     if vim.fn.confirm('No staged changes. Stage all tracked changes and commit?', '&Yes\n&No', 1) ~= 1 then
       return
@@ -131,12 +131,12 @@ function M.commit()
   vim.list_extend(args, msg == '' and { '--no-edit' } or { '--file=-' })
   git.run(st.root, args, function(ok, out, err)
     if not ok then
-      return vim.notify('nice-git: ' .. vim.trim(err ~= '' and err or out), vim.log.levels.ERROR)
+      return require('nice-git.ui').notify(vim.trim(err ~= '' and err or out), vim.log.levels.ERROR)
     end
     set_message('')
     M.amend = false
     vim.cmd.stopinsert()
-    vim.notify('nice-git: ' .. vim.split(vim.trim(out), '\n', { plain = true })[1])
+    require('nice-git.ui').notify(vim.split(vim.trim(out), '\n', { plain = true })[1])
     require('nice-git').refresh()
   end, { stdin = msg ~= '' and msg or nil })
 end

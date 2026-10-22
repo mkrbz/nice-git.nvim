@@ -8,7 +8,7 @@ local function state()
 end
 
 local function notify(msg, level)
-  vim.notify('nice-git: ' .. msg, level)
+  require('nice-git.ui').notify(msg, level)
 end
 
 ---Runs a git command that changes the repo, then reloads open buffers and the panel.
@@ -74,7 +74,7 @@ function M.push()
     elseif #remotes == 1 then
       publish(remotes[1])
     else
-      vim.ui.select(remotes, { prompt = 'Publish branch to' }, publish)
+      require('nice-git.ui').select(remotes, { prompt = 'Publish branch to' }, publish)
     end
   end)
 end
@@ -106,7 +106,7 @@ end
 
 ---Stashes all changes, untracked files included, under an optional message.
 function M.stash()
-  vim.ui.input({ prompt = 'Stash message (optional): ' }, function(msg)
+  require('nice-git.ui').input({ prompt = 'Stash message (optional): ' }, function(msg)
     if msg == nil then
       return
     end
@@ -150,13 +150,13 @@ end
 ---Creates a worktree for a new or existing branch next to the repository.
 function M.add_worktree()
   local root = state().root
-  vim.ui.input({ prompt = 'Branch for the new worktree: ' }, function(branch)
+  require('nice-git.ui').input({ prompt = 'Branch for the new worktree: ' }, function(branch)
     branch = branch and vim.trim(branch)
     if not branch or branch == '' then
       return
     end
     local default = vim.fs.dirname(root) .. '/' .. vim.fs.basename(root) .. '-' .. branch:gsub('/', '-')
-    vim.ui.input({ prompt = 'Worktree path: ', default = default, completion = 'dir' }, function(path)
+    require('nice-git.ui').input({ prompt = 'Worktree path: ', default = default, completion = 'dir' }, function(path)
       if not path or vim.trim(path) == '' then
         return
       end
@@ -208,7 +208,7 @@ function M.switch_branch()
         table.insert(items, { label = name .. '  (remote)', remote = name })
       end
     end
-    vim.ui.select(items, {
+    require('nice-git.ui').select(items, {
       prompt = 'Switch branch (on ' .. (current or '?') .. ')',
       format_item = function(item)
         return item.label
@@ -217,7 +217,7 @@ function M.switch_branch()
       if not item then
         return
       elseif item == NEW then
-        vim.ui.input({ prompt = 'New branch name: ' }, function(name)
+        require('nice-git.ui').input({ prompt = 'New branch name: ' }, function(name)
           if name and vim.trim(name) ~= '' then
             M.run({ 'switch', '-c', vim.trim(name) })
           end

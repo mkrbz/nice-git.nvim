@@ -100,7 +100,7 @@ local function at_cursor()
       return c
     end
   end
-  vim.notify('nice-git: no conflict under the cursor', vim.log.levels.WARN)
+  require('nice-git.ui').notify('no conflict under the cursor', vim.log.levels.WARN)
 end
 
 function M.resolve_all(pick)

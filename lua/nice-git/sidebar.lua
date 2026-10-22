@@ -60,7 +60,7 @@ end
 
 local function notify_result(ok, out, err)
   if not ok then
-    vim.notify('nice-git: ' .. vim.trim(err ~= '' and err or out), vim.log.levels.ERROR)
+    require('nice-git.ui').notify(vim.trim(err ~= '' and err or out), vim.log.levels.ERROR)
   end
   require('nice-git').refresh()
 end
@@ -588,7 +588,7 @@ function M.close()
   end
   local win = M.win_in_tab()
   if win and not pcall(api.nvim_win_close, win, false) then
-    vim.notify('nice-git: cannot close the last window', vim.log.levels.WARN)
+    require('nice-git.ui').notify('cannot close the last window', vim.log.levels.WARN)
   end
 end
 

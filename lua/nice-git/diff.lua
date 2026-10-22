@@ -202,7 +202,7 @@ local function hunk_at_cursor()
       return h
     end
   end
-  vim.notify('nice-git: no change under the cursor', vim.log.levels.WARN)
+  require('nice-git.ui').notify('no change under the cursor', vim.log.levels.WARN)
 end
 
 -- `a` with the hunk's region of `a` (sa, ca) replaced by the region of `b` (sb, cb).
@@ -214,7 +214,7 @@ end
 
 local function after_git(ok, out, err)
   if not ok then
-    vim.notify('nice-git: ' .. vim.trim(err ~= '' and err or out), vim.log.levels.ERROR)
+    require('nice-git.ui').notify(vim.trim(err ~= '' and err or out), vim.log.levels.ERROR)
   end
   require('nice-git').refresh()
 end

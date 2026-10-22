@@ -64,7 +64,7 @@ local function set_action(i, action, on_cancel)
     c.action, c.message = action, nil
     return render()
   end
-  vim.ui.input({ prompt = 'New message: ', default = c.message or c.subject }, function(msg)
+  require('nice-git.ui').input({ prompt = 'New message: ', default = c.message or c.subject }, function(msg)
     if msg and vim.trim(msg) ~= '' then
       c.action, c.message = 'reword', vim.trim(msg)
       render()
@@ -130,7 +130,7 @@ function M.start()
   end
   local first = plan.commits[1]
   if first and (first.action == 'squash' or first.action == 'fixup') then
-    return vim.notify('nice-git: the first commit has nothing to ' .. first.action .. ' into', vim.log.levels.WARN)
+    return require('nice-git.ui').notify('the first commit has nothing to ' .. first.action .. ' into', vim.log.levels.WARN)
   end
   local args = { 'rebase', '--interactive', '--autostash' }
   table.insert(args, plan.base or '--root')
@@ -140,9 +140,9 @@ function M.start()
   M.close()
   git.run(root, args, function(ok, out, err)
     if ok then
-      vim.notify('nice-git: rebase done')
+      require('nice-git.ui').notify('rebase done')
     else
-      vim.notify('nice-git: rebase stopped: ' .. vim.trim(err ~= '' and err or out), vim.log.levels.WARN)
+      require('nice-git.ui').notify('rebase stopped: ' .. vim.trim(err ~= '' and err or out), vim.log.levels.WARN)
     end
     vim.cmd.checktime()
     require('nice-git').refresh()
@@ -282,7 +282,7 @@ function M.open(hash)
     local args = { 'log', '--reverse', '--no-merges', '--format=%h%x00%s', base and base .. '..HEAD' or 'HEAD' }
     git.run(root, args, function(ok, out, err)
       if not ok then
-        return vim.notify('nice-git: ' .. vim.trim(err), vim.log.levels.ERROR)
+        return require('nice-git.ui').notify(vim.trim(err), vim.log.levels.ERROR)
       end
       local commits = {}
       for _, line in ipairs(vim.split(out, '\n', { trimempty = true })) do
@@ -290,7 +290,7 @@ function M.open(hash)
         table.insert(commits, { hash = h, subject = subject, action = 'pick' })
       end
       if #commits == 0 then
-        return vim.notify('nice-git: no commits to rebase (is that commit on this branch?)', vim.log.levels.WARN)
+        return require('nice-git.ui').notify('no commits to rebase (is that commit on this branch?)', vim.log.levels.WARN)
       end
       open_float(base, root, commits)
     end)

@@ -220,7 +220,7 @@ function M.toggle_panel()
   end
   local src_win, src_buf = api.nvim_get_current_win(), api.nvim_get_current_buf()
   if not file_of(src_buf) then
-    return vim.notify('nice-git: blame needs a file on disk', vim.log.levels.WARN)
+    return require('nice-git.ui').notify('blame needs a file on disk', vim.log.levels.WARN)
   end
   local buf = api.nvim_create_buf(false, true)
   vim.bo[buf].bufhidden = 'wipe'

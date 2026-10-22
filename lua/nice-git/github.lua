@@ -51,9 +51,9 @@ end
 local function after(label)
   return function(ok, out, err)
     if ok then
-      vim.notify('nice-git: ' .. label .. ' done')
+      require('nice-git.ui').notify(label .. ' done')
     else
-      vim.notify('nice-git: ' .. label .. ' failed: ' .. (err ~= '' and err or out), vim.log.levels.ERROR)
+      require('nice-git.ui').notify(label .. ' failed: ' .. (err ~= '' and err or out), vim.log.levels.ERROR)
     end
     vim.cmd.checktime()
     require('nice-git').refresh()
@@ -67,7 +67,7 @@ end
 function M.browse(pr)
   gh({ 'pr', 'view', tostring(pr.number), '--web' }, function(ok, _, err)
     if not ok then
-      vim.notify('nice-git: ' .. err, vim.log.levels.ERROR)
+      require('nice-git.ui').notify(err, vim.log.levels.ERROR)
     end
   end)
 end
@@ -75,7 +75,7 @@ end
 function M.show_diff(pr)
   gh({ 'pr', 'diff', tostring(pr.number) }, function(ok, out, err)
     if not ok then
-      return vim.notify('nice-git: ' .. err, vim.log.levels.ERROR)
+      return require('nice-git.ui').notify(err, vim.log.levels.ERROR)
     end
     require('nice-git.diff').show_page('pr:' .. pr.number, vim.split(out, '\n', { plain = true }), 'diff', '#' .. pr.number .. ' ' .. pr.title, {
       { '⎇ Checkout', function()
@@ -92,7 +92,7 @@ end
 function M.create()
   gh({ 'pr', 'create', '--web' }, function(ok, out, err)
     if not ok then
-      vim.notify('nice-git: ' .. (err ~= '' and err or out), vim.log.levels.ERROR)
+      require('nice-git.ui').notify((err ~= '' and err or out), vim.log.levels.ERROR)
     end
   end)
 end
@@ -103,7 +103,7 @@ function M.menu(pr)
     { 'Check out', M.checkout },
     { 'Open in browser', M.browse },
   }
-  vim.ui.select(choices, {
+  require('nice-git.ui').select(choices, {
     prompt = '#' .. pr.number .. ' ' .. pr.title,
     format_item = function(c)
       return c[1]

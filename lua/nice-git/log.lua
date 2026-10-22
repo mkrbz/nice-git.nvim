@@ -200,7 +200,7 @@ local function menu(row)
     end },
   }
   table.insert(choices, { 'Interactive rebase from here…', function() require('nice-git.rebase').open(hash) end })
-  vim.ui.select(choices, {
+  require('nice-git.ui').select(choices, {
     prompt = hash .. ' ' .. row.commit.subject,
     format_item = function(c)
       return c[1]
