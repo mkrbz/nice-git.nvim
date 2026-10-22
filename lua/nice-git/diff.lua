@@ -60,9 +60,10 @@ local function show(state, path, lspec, rspec, llines, rlines)
   vim.cmd('diffoff!')
 
   -- Reduce the tab to one editor window, then rebuild: [sidebar | left | right].
+  local panel = { [sidebar.buf] = true, [require('nice-git.commit').buf or -1] = true }
   local main
   for _, w in ipairs(api.nvim_tabpage_list_wins(0)) do
-    if api.nvim_win_get_buf(w) ~= sidebar.buf and api.nvim_win_get_config(w).relative == '' then
+    if not panel[api.nvim_win_get_buf(w)] and api.nvim_win_get_config(w).relative == '' then
       main = w
       break
     end
