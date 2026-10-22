@@ -23,6 +23,18 @@ local function scratch_buf(lines)
   return buf
 end
 
+---"3 days ago" for a unix timestamp.
+function M.ago(time)
+  local d = os.time() - time
+  for _, u in ipairs({ { 31536000, 'year' }, { 2592000, 'month' }, { 604800, 'week' }, { 86400, 'day' }, { 3600, 'hour' }, { 60, 'minute' } }) do
+    if d >= u[1] then
+      local n = math.floor(d / u[1])
+      return n .. ' ' .. u[2] .. (n > 1 and 's' or '') .. ' ago'
+    end
+  end
+  return 'just now'
+end
+
 -- Toasts ------------------------------------------------------------------------------------
 
 local toasts = {}
