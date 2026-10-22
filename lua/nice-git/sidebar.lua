@@ -66,7 +66,7 @@ function M.set_highlights()
   end
 end
 
-M.collapsed = { worktrees = true }
+M.collapsed = { worktrees = true, prs = true }
 M.rows = {}
 
 -- Width in cells of every right-aligned button label; clicks are mapped back by position.
@@ -279,7 +279,7 @@ local function build()
   end
 
   -- Collapsible section with a title row; `fill` adds its rows when expanded.
-  local function section(key, title, count, right, fill)
+  local function section(key, title, count, right, fill, on_expand)
     local text = (M.collapsed[key] and ' ▸ ' or ' ▾ ') .. title
     add({
       text = text,
@@ -288,6 +288,9 @@ local function build()
       right = right,
       click = function()
         M.collapsed[key] = not M.collapsed[key]
+        if not M.collapsed[key] and on_expand then
+          on_expand()
+        end
         M.render()
       end,
     })
@@ -335,6 +338,42 @@ local function build()
         })
       end
     end)
+  end
+
+  local github = require('nice-git.github')
+  if github.available() then
+    local prs = github.prs.root == root and github.prs or {}
+    local right = {
+      { ' + ', 'NiceGitButton', github.create },
+      { ' ⟳ ', 'NiceGitButton', github.load },
+    }
+    section('prs', 'PULL REQUESTS', prs.list and #prs.list or '', right, function()
+      local function note(text, hl)
+        add({ text = '   ' .. text, hls = { { 0, 3 + #text, hl } } })
+      end
+      if prs.loading then
+        note('Loading…', 'NiceGitEmpty')
+      elseif prs.error then
+        note((prs.error:gsub('\n.*', '')), 'NiceGitConflict')
+      elseif prs.list and #prs.list == 0 then
+        note('No open pull requests', 'NiceGitEmpty')
+      end
+      for _, pr in ipairs(prs.list or {}) do
+        local num = '#' .. pr.number
+        local line = '   ' .. num .. ' ' .. pr.title
+        add({
+          text = line,
+          hls = { { 3, 3 + #num, 'NiceGitHash' }, pr.isDraft and { 4 + #num, #line, 'NiceGitPath' } or nil },
+          virt = { { (pr.author and pr.author.login or '') .. ' ', 'NiceGitPath' } },
+          right = { { ' ↗ ', 'NiceGitButton', function()
+            github.browse(pr)
+          end } },
+          click = function()
+            github.menu(pr)
+          end,
+        })
+      end
+    end, github.ensure_loaded)
   end
 
   local stashes = st.stashes or {}
