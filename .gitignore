@@ -1,0 +1,13 @@
+# Local editor/shell files that are not part of the plugin
+.bash_profile
+.bashrc
+.gitconfig
+.gitmodules
+.idea
+.mcp.json
+.profile
+.ripgreprc
+.vscode
+.zprofile
+.zshrc
+nvim.log
