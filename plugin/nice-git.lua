@@ -3,6 +3,25 @@ if vim.g.loaded_nice_git then
 end
 vim.g.loaded_nice_git = true
 
-vim.api.nvim_create_user_command('NiceGit', function()
-  require('nice-git').toggle()
-end, { desc = 'Toggle the nice-git Source Control panel' })
+local commands = {
+  log = function()
+    require('nice-git.log').open()
+  end,
+}
+
+vim.api.nvim_create_user_command('NiceGit', function(opts)
+  local cmd = commands[opts.fargs[1]]
+  if cmd then
+    cmd()
+  elseif opts.fargs[1] then
+    vim.notify('nice-git: unknown subcommand ' .. opts.fargs[1], vim.log.levels.ERROR)
+  else
+    require('nice-git').toggle()
+  end
+end, {
+  nargs = '?',
+  desc = 'Toggle the nice-git Source Control panel, or run a subcommand',
+  complete = function()
+    return vim.tbl_keys(commands)
+  end,
+})

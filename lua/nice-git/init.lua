@@ -65,6 +65,10 @@ function M.refresh()
         M.state.status = status
         require('nice-git.sidebar').render()
         require('nice-git.diff').refresh()
+        local log = require('nice-git.log')
+        if log.buf and #vim.fn.win_findbuf(log.buf) > 0 then
+          log.refresh()
+        end
       end
       done()
     end)
@@ -107,7 +111,8 @@ function M.watch()
   end
 end
 
-function M.open()
+---Finds the repository of the current file (or cwd), makes it the active one, then calls cb.
+function M.with_root(cb)
   local file = api.nvim_buf_get_name(0)
   local dir = vim.bo.buftype == '' and file ~= '' and vim.fs.dirname(file) or vim.fn.getcwd()
   git.resolve(dir, function(root, gitdir, err)
@@ -118,6 +123,12 @@ function M.open()
       M.unwatch()
       M.state = { root = root, gitdir = gitdir }
     end
+    cb()
+  end)
+end
+
+function M.open()
+  M.with_root(function()
     require('nice-git.sidebar').open_win()
     M.refresh()
   end)
