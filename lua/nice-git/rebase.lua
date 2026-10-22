@@ -287,7 +287,7 @@ function M.open(hash)
   local root = state().root
   git.run(root, { 'rev-parse', '--verify', '-q', hash .. '^' }, function(has_parent)
     local base = has_parent and hash .. '^' or nil
-    local args = { 'log', '--reverse', '--no-merges', '--format=%h%x00%s', base and base .. '..HEAD' or 'HEAD' }
+    local args = { 'log', '--reverse', '--topo-order', '--no-merges', '--format=%h%x00%s', base and base .. '..HEAD' or 'HEAD' }
     git.run(root, args, function(ok, out, err)
       if not ok then
         return require('nice-git.ui').notify(vim.trim(err), vim.log.levels.ERROR)
