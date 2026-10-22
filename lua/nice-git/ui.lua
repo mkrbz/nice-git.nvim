@@ -175,9 +175,18 @@ end
 M._update_hover = update_hover
 
 local MOUSEMOVE = vim.keycode('<MouseMove>')
+local CLICKS = {}
+for _, k in ipairs({ '<LeftMouse>', '<LeftRelease>', '<RightMouse>', '<RightRelease>', '<2-LeftMouse>', '<2-LeftRelease>' }) do
+  CLICKS[vim.keycode(k)] = true
+end
+local last_click = 0 -- when the last mouse click arrived, so menus know whether to open at the pointer
+
 vim.on_key(function(key, typed)
-  if (typed ~= '' and typed or key) == MOUSEMOVE and next(hover_handlers) then
+  local k = typed ~= '' and typed or key
+  if k == MOUSEMOVE and next(hover_handlers) then
     vim.schedule(update_hover)
+  elseif CLICKS[k] then
+    last_click = vim.uv.now()
   end
 end, api.nvim_create_namespace('nice-git-hover'))
 
@@ -322,11 +331,11 @@ end
 
 -- Menus --------------------------------------------------------------------------------------
 
--- Where the last mouse event happened, so menus open under the pointer.
+-- Opens menus under the pointer when a click opened them, else at the cursor.
 local function anchor(width, height)
   local pos = vim.fn.getmousepos()
   local row, col
-  if pos.screenrow > 0 then
+  if vim.uv.now() - last_click < 1000 and pos.screenrow > 0 then
     row, col = pos.screenrow, pos.screencol - 1
   else
     local p = vim.fn.screenpos(0, vim.fn.line('.'), vim.fn.col('.'))
