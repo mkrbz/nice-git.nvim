@@ -2,6 +2,8 @@
 -- click the action badge to cycle it, then Start.
 local api = vim.api
 local git = require('nice-git.git')
+local theme = require('nice-git.theme')
+local ui = require('nice-git.ui')
 
 local M = {}
 
@@ -9,19 +11,16 @@ local ns = api.nvim_create_namespace('nice-git-rebase')
 local ns_drop = api.nvim_create_namespace('nice-git-rebase-drop')
 
 local ACTIONS = { 'pick', 'reword', 'edit', 'squash', 'fixup', 'drop' }
+-- Actions that change a commit stand out; pick (and drop, whose row is struck through) stay quiet.
 local ACTION_HL = {
-  pick = 'NiceGitButton',
-  reword = 'NiceGitModified',
-  edit = 'NiceGitModified',
-  squash = 'NiceGitRef',
-  fixup = 'NiceGitRef',
-  drop = 'NiceGitDeleted',
+  pick = 'NiceGitPillSoft',
+  reword = 'NiceGitPill',
+  edit = 'NiceGitPill',
+  squash = 'NiceGitPill',
+  fixup = 'NiceGitPill',
+  drop = 'NiceGitPillSoft',
 }
 local KEYS = { p = 'pick', r = 'reword', e = 'edit', s = 'squash', f = 'fixup', d = 'drop' }
-
--- Byte columns (0-based, end exclusive) of the badge in each commit line: "  [pick  ] ..."
-local BADGE = { 2, 10 }
-local START, CANCEL = '▶ Start rebase', '✕ Cancel'
 
 local plan -- { base, root, buf, win, commits = { {hash, subject, action, message?} } }
 
@@ -29,29 +28,65 @@ local function state()
   return require('nice-git').state
 end
 
+local function pill(text, hls, label, body)
+  local i = theme.icons
+  for _, part in ipairs({ { i.pill_left, body .. 'Edge' }, { ' ' .. label .. ' ', body }, { i.pill_right, body .. 'Edge' } }) do
+    local start = #text
+    text = text .. part[1]
+    table.insert(hls, { start, #text, part[2] })
+  end
+  return text
+end
+
+-- Draws the plan; plan.rows[n] keeps each line's clickable byte ranges.
 local function render()
-  local lines = {}
-  for _, c in ipairs(plan.commits) do
-    local subject = c.message and ('✎ ' .. c.message) or c.subject
-    table.insert(lines, ('  [%-6s] %s %s'):format(c.action, c.hash, subject))
+  local icons = theme.icons
+  local lines, all_hls = {}, {}
+  plan.rows = {}
+  for n, c in ipairs(plan.commits) do
+    local hls = {}
+    local text = '  ' .. icons.gripper
+    table.insert(hls, { 2, #text, 'NiceGitDim' })
+    text = text .. '  '
+    local b0 = #text
+    text = pill(text, hls, ('%-6s'):format(c.action), ACTION_HL[c.action])
+    local b1 = #text
+    text = text .. '  '
+    local s0 = #text
+    text = text .. c.hash
+    table.insert(hls, { s0, #text, 'NiceGitAccent' })
+    text = text .. '  '
+    s0 = #text
+    text = text .. (c.message and (icons.edit .. ' ' .. c.message) or c.subject)
+    if c.action == 'drop' then
+      table.insert(hls, { s0, #text, 'NiceGitDeleted' })
+    end
+    lines[n], all_hls[n] = text, hls
+    plan.rows[n] = { badge = { b0, b1 } }
   end
   table.insert(lines, '')
-  table.insert(lines, '  ' .. START .. '    ' .. CANCEL)
+  local hls = {}
+  local text = '  '
+  local s0 = #text
+  text = pill(text, hls, icons.check .. ' Start Rebase', 'NiceGitPill')
+  plan.start_btn = { s0, #text }
+  text = text .. '   '
+  s0 = #text
+  text = pill(text, hls, 'Cancel', 'NiceGitPillSoft')
+  plan.cancel_btn = { s0, #text }
+  table.insert(lines, text)
+  all_hls[#lines] = hls
+
   local buf = plan.buf
   vim.bo[buf].modifiable = true
   api.nvim_buf_set_lines(buf, 0, -1, false, lines)
   vim.bo[buf].modifiable = false
   api.nvim_buf_clear_namespace(buf, ns, 0, -1)
-  for i, c in ipairs(plan.commits) do
-    api.nvim_buf_set_extmark(buf, ns, i - 1, BADGE[1], { end_col = BADGE[2], hl_group = ACTION_HL[c.action] })
-    api.nvim_buf_set_extmark(buf, ns, i - 1, BADGE[2] + 1, { end_col = BADGE[2] + 1 + #c.hash, hl_group = 'NiceGitHash' })
-    if c.action == 'drop' then
-      api.nvim_buf_set_extmark(buf, ns, i - 1, BADGE[2] + 1, { end_col = #lines[i], hl_group = 'NiceGitPath' })
+  for l, list in pairs(all_hls) do
+    for _, h in ipairs(list) do
+      api.nvim_buf_set_extmark(buf, ns, l - 1, h[1], { end_col = h[2], hl_group = h[3] })
     end
   end
-  local last = #lines - 1
-  api.nvim_buf_set_extmark(buf, ns, last, 2, { end_col = 2 + #START, hl_group = 'NiceGitCommitButton' })
-  api.nvim_buf_set_extmark(buf, ns, last, 6 + #START, { end_col = #lines[#lines], hl_group = 'NiceGitButton' })
 end
 
 ---@param on_cancel? fun() runs when a reword prompt is dismissed
@@ -153,65 +188,33 @@ function M.start()
   end, { env = env })
 end
 
--- Mouse: press on a commit row and drag to reorder; click the badge or the buttons.
-local drag
-
-local function row_at(pos)
-  if plan and pos.winid == plan.win and pos.line > 0 then
-    return pos.line
-  end
+-- Mouse: drag a commit row to reorder it; click its action pill or the buttons below.
+local function within(range, pos)
+  return range and pos.column > range[1] and pos.column <= range[2]
 end
 
-local function on_mouse()
-  local pos = vim.fn.getmousepos()
-  local line = row_at(pos)
-  drag = line and line <= #plan.commits and { from = line, moved = false } or nil
-  return '<LeftMouse>'
-end
-
-local function on_drag()
-  if not drag then
-    return '<LeftDrag>'
-  end
-  drag.moved = true
-  local line = row_at(vim.fn.getmousepos())
-  vim.schedule(function()
-    if plan then
-      api.nvim_buf_clear_namespace(plan.buf, ns_drop, 0, -1)
-      if line and line <= #plan.commits then
-        api.nvim_buf_set_extmark(plan.buf, ns_drop, line - 1, 0, { line_hl_group = 'NiceGitDropTarget' })
-      end
+local function click(pos)
+  local line = pos.line
+  if line <= #plan.commits then
+    if within(plan.rows[line].badge, pos) then
+      cycle(line)
     end
-  end)
-  return ''
+  elseif line == #plan.commits + 2 then
+    if within(plan.start_btn, pos) then
+      M.start()
+    elseif within(plan.cancel_btn, pos) then
+      M.close()
+    end
+  end
 end
 
-local function on_release()
-  local pos = vim.fn.getmousepos()
-  local d = drag
-  drag = nil
+local function show_drop_target(from, pos)
   if not plan then
     return
   end
   api.nvim_buf_clear_namespace(plan.buf, ns_drop, 0, -1)
-  local line = row_at(pos)
-  if not line then
-    return
-  end
-  if d and d.moved then
-    return move(d.from, math.min(line, #plan.commits))
-  end
-  local col = pos.column - 1
-  if line <= #plan.commits then
-    if col >= BADGE[1] and col < BADGE[2] then
-      cycle(line)
-    end
-  elseif line == #plan.commits + 2 then
-    if col >= 2 and col < 2 + #START then
-      M.start()
-    elseif col >= 6 + #START then
-      M.close()
-    end
+  if from and pos.line >= 1 and pos.line <= #plan.commits then
+    api.nvim_buf_set_extmark(plan.buf, ns_drop, pos.line - 1, 0, { line_hl_group = 'NiceGitDropTarget' })
   end
 end
 
@@ -221,7 +224,7 @@ local function open_float(base, root, commits)
   vim.bo[buf].filetype = 'nice-git-rebase'
   local width = 60
   for _, c in ipairs(commits) do
-    width = math.max(width, 14 + #c.hash + api.nvim_strwidth(c.subject))
+    width = math.max(width, 22 + #c.hash + api.nvim_strwidth(c.subject))
   end
   width = math.min(width, vim.o.columns - 6)
   local height = math.min(#commits + 2, vim.o.lines - 6)
@@ -232,12 +235,12 @@ local function open_float(base, root, commits)
     row = math.floor((vim.o.lines - height) / 2) - 1,
     col = math.floor((vim.o.columns - width) / 2),
     border = 'rounded',
-    title = ' Interactive rebase ',
+    title = ' ' .. theme.icons.edit .. ' Interactive Rebase ',
     title_pos = 'center',
-    footer = ' drag to reorder · click an action to change it ',
+    footer = ' drag rows to reorder · click an action to change it ',
     footer_pos = 'center',
   })
-  require('nice-git.theme').style_window(win, 'float')
+  theme.style_window(win, 'float')
   vim.wo[win].cursorline, vim.wo[win].wrap = true, false
   plan = { base = base, root = root, buf = buf, win = win, commits = commits }
   render()
@@ -248,11 +251,16 @@ local function open_float(base, root, commits)
   local function cur()
     return api.nvim_win_get_cursor(0)[1]
   end
-  for _, n in ipairs({ '', '2-', '3-', '4-' }) do
-    map('<' .. n .. 'LeftMouse>', on_mouse, { expr = true })
-    map('<' .. n .. 'LeftDrag>', on_drag, { expr = true })
-    map('<' .. n .. 'LeftRelease>', on_release)
-  end
+  ui.clickable(buf, {
+    click = click,
+    draggable = function(pos)
+      return pos.line <= #plan.commits and pos.line or nil
+    end,
+    dragging = show_drop_target,
+    drop = function(from, pos)
+      move(from, math.max(1, math.min(pos.line, #plan.commits)))
+    end,
+  })
   for key, action in pairs(KEYS) do
     map(key, function()
       set_action(cur(), action)
