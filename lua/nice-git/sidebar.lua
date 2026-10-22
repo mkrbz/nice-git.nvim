@@ -149,11 +149,25 @@ local function build()
     return row
   end
 
-  local head = ' ⎇ ' .. (st.branch == '(detached)' and 'detached HEAD' or st.branch or '?')
+  local actions = require('nice-git.actions')
+  local branch = ' ⎇ ' .. (st.branch == '(detached)' and 'detached HEAD' or st.branch or '?')
+  local head = branch
   if st.ahead then
     head = head .. ('  ↑%d ↓%d'):format(st.ahead, st.behind)
   end
-  add({ text = head, hls = { { 0, #head, 'NiceGitHeader' } } })
+  if actions.busy then
+    head = head .. '  ' .. actions.busy .. '…'
+  end
+  add({
+    text = head,
+    hls = { { 0, #branch, 'NiceGitHeader' }, { #branch, #head, 'NiceGitCount' } },
+    buttons = { { 0, #branch, actions.switch_branch } },
+    right = {
+      { ' ⟳ ', 'NiceGitButton', actions.fetch },
+      { ' ↓ ', 'NiceGitButton', actions.pull },
+      { ' ↑ ', 'NiceGitButton', actions.push },
+    },
+  })
 
   local btn = ' ✓ Commit '
   local amend = commit.amend and ' ☑ Amend ' or ' ☐ Amend '
@@ -386,6 +400,11 @@ local function ensure_buf()
       discard(row)
     end
   end), 'Discard changes')
+  local actions = require('nice-git.actions')
+  map('n', 'b', actions.switch_branch, 'Switch branch')
+  map('n', 'f', actions.fetch, 'Fetch')
+  map('n', 'p', actions.pull, 'Pull')
+  map('n', 'P', actions.push, 'Push')
   map('n', 'c', function()
     require('nice-git.commit').focus()
   end, 'Write commit message')
