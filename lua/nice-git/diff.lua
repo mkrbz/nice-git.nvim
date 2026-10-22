@@ -48,7 +48,7 @@ local function set_lines(buf, lines)
   vim.bo[buf].modified = false
 end
 
-local function scratch(name, path, lines)
+local function scratch(name, path, lines, filetype)
   for _, b in ipairs(api.nvim_list_bufs()) do
     if api.nvim_buf_get_name(b) == name then
       set_lines(b, lines)
@@ -59,7 +59,7 @@ local function scratch(name, path, lines)
   api.nvim_buf_set_name(buf, name)
   vim.bo[buf].bufhidden = 'wipe'
   set_lines(buf, lines)
-  local ft = vim.filetype.match({ filename = path })
+  local ft = filetype or path and vim.filetype.match({ filename = path })
   if ft then
     vim.bo[buf].filetype = ft
   end
@@ -302,14 +302,27 @@ local function teardown()
   cur = nil
 end
 
-local function show(view)
+-- The tab all views share; reused so browsing files doesn't pile up tabs.
+local view_tab
+
+-- Toolbar buttons of pages (stash, commit…) get ids from here up; cleared on every new view.
+local PAGE_IDS = 100
+
+-- Switches to the view tab (creating it if needed) and reduces it to the panel plus one
+-- editor window, which is returned.
+local function prepare_tab()
   teardown()
+  for id in pairs(actions) do
+    if id >= PAGE_IDS then
+      actions[id] = nil
+    end
+  end
   local sidebar = require('nice-git.sidebar')
-  local tab = view.tab
-  if tab and api.nvim_tabpage_is_valid(tab) then
-    api.nvim_set_current_tabpage(tab)
+  if view_tab and api.nvim_tabpage_is_valid(view_tab) then
+    api.nvim_set_current_tabpage(view_tab)
   else
     vim.cmd('tabnew')
+    view_tab = api.nvim_get_current_tabpage()
   end
   vim.cmd('diffoff!')
 
@@ -329,7 +342,30 @@ local function show(view)
     main = api.nvim_get_current_win()
   end
   vim.cmd('silent! only')
+  vim.wo[main].winbar = ''
+  return main
+end
 
+---Shows read-only text (a stash, a commit…) in the view tab with a title and toolbar buttons
+---given as { {label, fn}, ... }.
+function M.show_page(name, lines, filetype, title_text, buttons)
+  local main = prepare_tab()
+  local buf = scratch('nice-git://' .. name, nil, lines, filetype)
+  api.nvim_win_set_buf(main, buf)
+  require('nice-git.sidebar').open_win()
+  local bar = ''
+  for i, b in ipairs(buttons or {}) do
+    actions[PAGE_IDS + i] = b[2]
+    bar = bar .. button(PAGE_IDS + i, b[1])
+  end
+  vim.wo[main].winbar = '%#NiceGitToolbarTitle# ' .. title_text:gsub('%%', '%%%%') .. ' %*%=' .. bar
+  api.nvim_set_current_win(main)
+  return buf, main
+end
+
+local function show(view)
+  local main = prepare_tab()
+  local sidebar = require('nice-git.sidebar')
   local path = view.row.entry.path
   local rbuf
   if view.rspec == true then
@@ -360,7 +396,7 @@ local function show(view)
   sidebar.open_win()
 
   cur = {
-    tab = api.nvim_get_current_tabpage(),
+    tab = view_tab,
     root = view.root,
     row = view.row,
     mode = mode,
@@ -405,10 +441,9 @@ function M.open(state, row)
   else
     lspec, rspec = specs(row.section, row.entry)
   end
-  local tab = cur and cur.tab
   load(state.root, lspec, function(llines)
     load(state.root, rspec, function(rlines)
-      local view = { tab = tab, root = state.root, row = row, lspec = lspec, rspec = rspec, conflict = conflict }
+      local view = { root = state.root, row = row, lspec = lspec, rspec = rspec, conflict = conflict }
       view.llines, view.rlines = llines, rlines
       show(view)
     end)
