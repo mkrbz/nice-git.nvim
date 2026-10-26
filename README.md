@@ -70,6 +70,7 @@ require('nice-git').setup({
   position = 'right',  -- or 'left'
   debounce = 100,      -- ms to wait after file changes before refreshing
   diff_mode = 'split', -- or 'inline'
+  repaint_after_scroll = true, -- repaint once after the side-by-side panes scroll (clears stale strips some terminals leave)
   native_ui = false,   -- true: use vim.notify / vim.ui.select / vim.ui.input (e.g. with telescope or snacks)
   icons = {},          -- override any icon, e.g. { stash = '' }; see lua/nice-git/theme.lua
 })

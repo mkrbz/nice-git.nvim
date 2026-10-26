@@ -485,10 +485,25 @@ function M.map_wheel(buf)
 end
 
 -- Undo everything the view added to buffers that outlive it (the working file in particular).
+-- Some terminals (seen with WezTerm) leave stale strips in a side-by-side pane after it scrolls,
+-- because they mishandle scrolling part of the screen. Repainting once when scrolling settles
+-- clears them, at the cost of a single redraw.
+local repaint_timer = assert(vim.uv.new_timer())
+
+local function repaint_later()
+  repaint_timer:stop()
+  repaint_timer:start(150, 0, vim.schedule_wrap(function()
+    if cur and cur.lwin and api.nvim_get_current_tabpage() == cur.tab then
+      vim.cmd('redraw!')
+    end
+  end))
+end
+
 local function teardown()
   if not cur then
     return
   end
+  repaint_timer:stop()
   -- The new-side buffer/window come first: the old side is nil in inline mode and ipairs stops there.
   api.nvim_clear_autocmds({ group = group })
   require('nice-git.conflict').detach()
@@ -642,6 +657,9 @@ local function show(view)
   })
   for _, buf in ipairs({ rbuf, lbuf }) do
     M.map_wheel(buf)
+  end
+  if lwin and require('nice-git').config.repaint_after_scroll then
+    api.nvim_create_autocmd('WinScrolled', { group = group, callback = repaint_later })
   end
   api.nvim_create_autocmd('WinResized', {
     group = group,

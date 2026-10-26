@@ -8,6 +8,7 @@ M.config = {
   position = 'right', -- or 'left'
   debounce = 100,
   diff_mode = 'split', -- or 'inline'
+  repaint_after_scroll = true, -- repaint once after side-by-side panes scroll (fixes stale strips in some terminals)
   native_ui = false, -- true: use vim.notify / vim.ui.select / vim.ui.input instead of nice-git's floats
   icons = {}, -- override any icon in lua/nice-git/theme.lua
 }
