@@ -49,3 +49,7 @@ vim.keymap.set('n', '<leader>g', '<cmd>NiceGit toggle<cr>', { desc = 'nice-git' 
 - [Usage](docs/usage.md): the panel, diffs, conflicts, history, rebase, blame, commands and keys
 - [Configuration](docs/configuration.md): options, colors and icons
 - [Development](docs/development.md): working on the plugin from a local clone
+
+## License
+
+[MIT](LICENSE)
