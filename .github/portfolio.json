@@ -1,0 +1,78 @@
+{
+  "$schema": "https://mirza.krbezlija.com/schemas/portfolio/v1.json",
+  "version": 1,
+  "title": "nice-git.nvim",
+  "tagline": "A VSCode-style, mouse-friendly Git interface for Neovim",
+  "description": "nice-git.nvim brings a Source Control panel to Neovim that works entirely with the mouse or the keyboard. It shows full-file diffs you can edit in place, a colored commit graph, one-click conflict resolution and an interactive rebase you plan by dragging commits. It is written in pure Lua with no dependencies and takes its colors from your colorscheme.",
+  "role": "Sole developer: design, implementation and testing",
+  "highlights": [
+    "Clickable Source Control panel: stage by drag and drop, commit, sync and switch branches",
+    "Full-file diffs, side by side or inline, with syntax colors and staging per change",
+    "Commit graph drawn from commit parents, with colored lanes and branch and tag labels",
+    "One-click conflict resolution and an interactive rebase planned by dragging commits",
+    "Pure Lua with no dependencies; every git call runs asynchronously",
+    "Colors derived from any colorscheme, readable in light and dark themes"
+  ],
+  "facts": [
+    { "label": "Language", "value": "Lua" },
+    { "label": "Platform", "value": "Neovim 0.13+" },
+    { "label": "Dependencies", "value": "None" },
+    { "label": "Size", "value": "About 5,000 lines" },
+    { "label": "License", "value": "MIT" }
+  ],
+  "details": ".github/portfolio.md",
+  "icon": ".github/portfolio/icon.png",
+  "iconLight": ".github/portfolio/icon-light.png",
+  "cover": "docs/images/panel.png",
+  "coverLight": "docs/images/panel-light.png",
+  "gallery": [
+    {
+      "src": "docs/images/panel.png",
+      "light": "docs/images/panel-light.png",
+      "alt": "Source Control panel beside a Lua file, with staged, changed and untracked files",
+      "caption": "The panel sits next to your code: write a message, commit, and stage files with a click or by dragging them."
+    },
+    {
+      "src": "docs/images/diff.png",
+      "light": "docs/images/diff-light.png",
+      "alt": "Side-by-side diff of a whole file with hatched gaps for removed lines",
+      "caption": "Diffs always show the whole file; the right side is the real buffer, so you can edit while you review."
+    },
+    {
+      "src": "docs/images/inline.png",
+      "light": "docs/images/inline-light.png",
+      "alt": "Inline diff with a removed line in red and changed words highlighted",
+      "caption": "Inline mode keeps removed lines in their syntax colors and highlights the words that changed."
+    },
+    {
+      "src": "docs/images/conflict.png",
+      "light": "docs/images/conflict-light.png",
+      "alt": "Merge conflict with Accept Current, Accept Incoming and Accept Both buttons",
+      "caption": "Resolve a conflict with one click, mark it resolved, then continue the merge from the panel."
+    },
+    {
+      "src": "docs/images/history.png",
+      "light": "docs/images/history-light.png",
+      "alt": "Commit graph with colored branch lines, branch and tag labels, and one expanded commit",
+      "caption": "The commit graph is drawn from commit parents; click a commit to see its files and their diffs."
+    },
+    {
+      "src": "docs/images/rebase.png",
+      "light": "docs/images/rebase-light.png",
+      "alt": "Interactive rebase planner listing commits with pick, squash and drop actions",
+      "caption": "Plan an interactive rebase by dragging commits into order and clicking their actions."
+    },
+    {
+      "src": "docs/images/menu.png",
+      "light": "docs/images/menu-light.png",
+      "alt": "Context menu on a changed file in the Source Control panel",
+      "caption": "Right-click any file for its actions; every click also has a key."
+    }
+  ],
+  "tags": ["Lua", "Neovim", "Git"],
+  "links": {
+    "docs": "https://github.com/mkrbz/nice-git.nvim/tree/main/docs"
+  },
+  "status": "active",
+  "year": 2026
+}
