@@ -69,6 +69,26 @@ local function blend(a, b, t)
 end
 M.blend = blend
 
+-- WCAG relative luminance and contrast ratio, to pick readable text on colored surfaces.
+local function luminance(n)
+  local sum = 0
+  for i, w in ipairs({ 0.2126, 0.7152, 0.0722 }) do
+    local c = rgb(n)[i] / 255
+    sum = sum + w * (c <= 0.03928 and c / 12.92 or ((c + 0.055) / 1.055) ^ 2.4)
+  end
+  return sum
+end
+
+local function contrast(a, b)
+  local x, y = luminance(a), luminance(b)
+  return (math.max(x, y) + 0.05) / (math.min(x, y) + 0.05)
+end
+
+---Whichever of `a` and `b` reads better on `surface`.
+local function readable_on(surface, a, b)
+  return contrast(surface, a) >= contrast(surface, b) and a or b
+end
+
 local function get(name, attr)
   local hl = api.nvim_get_hl(0, { name = name, link = false })
   return hl[attr]
@@ -189,7 +209,7 @@ function M.apply()
   set('NiceGitAccent', { fg = accent })
   set('NiceGitDim', { fg = dim })
   -- Pills: the body has a background; the caps only a foreground, so they take the row's color.
-  set('NiceGitPill', { fg = bg, bg = accent, bold = true })
+  set('NiceGitPill', { fg = readable_on(accent, bg, fg), bg = accent, bold = true })
   set('NiceGitPillEdge', { fg = accent })
   set('NiceGitPillSoft', { fg = fg, bg = soft })
   set('NiceGitPillSoftEdge', { fg = soft })
