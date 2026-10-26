@@ -441,6 +441,7 @@ local function more_menu()
     { icons().branch, 'Switch Branch…', actions.switch_branch },
     { icons().stash, 'Stash All Changes', actions.stash },
     { icons().split, 'Toggle Inline / Side-by-side Diff', require('nice-git.diff').toggle_mode },
+    { icons().circle, 'Hide nice-git (:NiceGit toggle)', require('nice-git').toggle_workspace },
     { icons().close, 'Close Panel', M.close },
   }
   ui.select(items, {
@@ -935,6 +936,29 @@ function M.open_win()
     require('nice-git').refresh()
   end
   return list
+end
+
+---Whether the panel is open in `tab`.
+function M.visible_in(tab)
+  for _, w in ipairs(api.nvim_tabpage_list_wins(tab)) do
+    if api.nvim_win_get_buf(w) == M.buf then
+      return true
+    end
+  end
+  return false
+end
+
+---Closes the panel in any tab, not just the current one.
+function M.close_in(tab)
+  -- The commit box float first: it is pinned to the header window.
+  local order = { require('nice-git.commit').buf, M.hbuf, M.buf }
+  for _, buf in ipairs(order) do
+    for _, w in ipairs(buf and api.nvim_tabpage_list_wins(tab) or {}) do
+      if api.nvim_win_is_valid(w) and api.nvim_win_get_buf(w) == buf then
+        pcall(api.nvim_win_close, w, true)
+      end
+    end
+  end
 end
 
 function M.close()

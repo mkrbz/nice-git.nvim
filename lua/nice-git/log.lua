@@ -271,6 +271,11 @@ function M.refresh()
     commits = ok and parse(out) or {}
     render()
     set_toolbar()
+    local win = vim.fn.bufwinid(M.buf)
+    if M.pending_cursor and win ~= -1 then
+      api.nvim_win_set_cursor(win, { math.min(M.pending_cursor[1], api.nvim_buf_line_count(M.buf)), 0 })
+    end
+    M.pending_cursor = nil
   end)
 end
 
@@ -425,10 +430,43 @@ end
 toolbar[2] = M.refresh
 
 function M.open()
-  require('nice-git').with_root(M.show)
+  require('nice-git').with_root(function()
+    M.show()
+  end)
 end
 
-function M.show()
+---The tab showing the graph, if any.
+function M.tab()
+  local win = M.buf and api.nvim_buf_is_valid(M.buf) and vim.fn.win_findbuf(M.buf)[1]
+  return win and api.nvim_win_get_tabpage(win) or nil
+end
+
+---Cursor position to restore after hiding; nil when the graph isn't open.
+function M.snapshot()
+  local tab = M.tab()
+  return tab and { cursor = api.nvim_win_get_cursor(vim.fn.win_findbuf(M.buf)[1]) } or nil
+end
+
+---Closes the graph's tab, keeping its buffer (on the last tab, swaps in an empty buffer instead).
+function M.close()
+  local tab = M.tab()
+  if not tab then
+    return
+  end
+  if #api.nvim_list_tabpages() > 1 then
+    vim.cmd.tabclose(api.nvim_tabpage_get_number(tab))
+  else
+    for _, w in ipairs(vim.fn.win_findbuf(M.buf)) do
+      api.nvim_win_call(w, function()
+        vim.cmd('enew')
+      end)
+    end
+  end
+end
+
+---@param cursor? integer[] where to put the cursor once the graph has loaded
+function M.show(cursor)
+  M.pending_cursor = cursor
   local buf = ensure_buf()
   local win = vim.fn.win_findbuf(buf)[1]
   if win then

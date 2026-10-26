@@ -532,6 +532,9 @@ local view_tab
 -- Toolbar buttons of pages (stash, commit…) get ids from here up; cleared on every new view.
 local PAGE_IDS = 100
 
+-- Arguments of the page on show, so a hidden workspace can bring it back.
+local last_page
+
 -- Switches to the view tab (creating it if needed) and reduces it to the panel plus one
 -- editor window, which is returned.
 local function prepare_tab()
@@ -574,6 +577,7 @@ end
 ---given as { {label, fn}, ... }.
 function M.show_page(name, lines, filetype, title_text, buttons)
   local main = prepare_tab()
+  last_page = { name, lines, filetype, title_text, buttons }
   local buf = scratch('nice-git://' .. name, nil, lines, filetype)
   api.nvim_win_set_buf(main, buf)
   theme.style_window(main, 'page')
@@ -590,6 +594,7 @@ end
 
 local function show(view)
   local main = prepare_tab()
+  last_page = nil
   local sidebar = require('nice-git.sidebar')
   local path = view.row.entry.path
   local rbuf
@@ -685,9 +690,13 @@ local function show(view)
   api.nvim_set_current_win(main)
   api.nvim_win_set_cursor(main, { 1, 0 })
   M.jump(1)
+  if view.on_shown then
+    view.on_shown()
+  end
 end
 
-function M.open(state, row)
+---@param on_shown? fun() called once the diff is on screen
+function M.open(state, row, on_shown)
   -- Conflicted files open on their own, markers and all, instead of as a diff.
   local conflict = row.entry.status == 'U'
   local lspec, rspec
@@ -698,10 +707,63 @@ function M.open(state, row)
   end
   load(state.root, lspec, function(llines)
     load(state.root, rspec, function(rlines)
-      local view = { root = state.root, row = row, lspec = lspec, rspec = rspec, conflict = conflict }
+      local view = { root = state.root, row = row, lspec = lspec, rspec = rspec, conflict = conflict, on_shown = on_shown }
       view.llines, view.rlines = llines, rlines
       show(view)
     end)
+  end)
+end
+
+function M.tab()
+  return view_tab and api.nvim_tabpage_is_valid(view_tab) and view_tab or nil
+end
+
+---What the view tab shows, so it can be brought back after hiding; nil when it isn't open.
+function M.snapshot()
+  if not M.tab() then
+    return nil
+  end
+  if cur then
+    local cursor = api.nvim_win_is_valid(cur.rwin) and api.nvim_win_get_cursor(cur.rwin) or nil
+    return { row = cur.row, cursor = cursor }
+  end
+  return last_page and { page = last_page } or nil
+end
+
+---Closes the view tab, keeping its buffers. The last tab can't close, so it is left with just the file.
+function M.close_tab()
+  local tab = M.tab()
+  if not tab then
+    return
+  end
+  local keep = cur and cur.rwin
+  teardown()
+  if #api.nvim_list_tabpages() > 1 then
+    vim.cmd.tabclose(api.nvim_tabpage_get_number(tab))
+  else
+    vim.cmd('diffoff!')
+    require('nice-git.sidebar').close()
+    if keep and api.nvim_win_is_valid(keep) then
+      api.nvim_set_current_win(keep)
+      vim.cmd('silent! only')
+    end
+  end
+  view_tab = nil
+end
+
+---Brings back what `snapshot()` recorded, then calls `done`.
+function M.restore(snap, done)
+  done = done or function() end
+  if snap.page then
+    M.show_page(unpack(snap.page))
+    return done()
+  end
+  M.open(require('nice-git').state, snap.row, function()
+    if snap.cursor and cur and api.nvim_win_is_valid(cur.rwin) then
+      local line = math.min(snap.cursor[1], api.nvim_buf_line_count(cur.rbuf))
+      api.nvim_win_set_cursor(cur.rwin, { line, snap.cursor[2] })
+    end
+    done()
   end)
 end
 
