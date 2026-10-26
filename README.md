@@ -137,6 +137,43 @@ its files, and click a file to diff it. Right-click (or `m`) opens a menu with S
 **Interactive rebase from here…**. In the rebase planner, drag rows to reorder them, click an action (or press
 `p`/`r`/`e`/`s`/`f`/`d`) to change it, then click **Start Rebase**.
 
+## Development
+
+Work on the plugin from the local clone, not from an installed copy.
+
+**Load the working copy.** In `init.lua`, put the clone on the runtimepath and remove any `vim.pack.add`
+(or lazy.nvim) entry for nice-git, so only one copy exists:
+
+```lua
+vim.opt.runtimepath:prepend(vim.fn.expand('~/dev/nice-git.nvim'))
+```
+
+Uncommitted edits are picked up as soon as Neovim restarts; there is nothing to install or update.
+If an old `vim.pack` copy is still on disk, remove it with `:packdel nice-git.nvim`.
+
+**See a change.** Save your edit, then run `:restart` (Neovim reopens with the same session), and `:NiceGit`.
+Restarting is the reliable way: the plugin keeps buffers, autocommands and timers that a plain
+`:lua package.loaded[...] = nil` reload would leave behind.
+
+**Rule out your config.** To check whether something comes from the plugin or from your setup,
+start a clean Neovim inside any git repo:
+
+```sh
+nvim --clean --cmd 'set rtp^=~/dev/nice-git.nvim' -c 'set termguicolors' -c NiceGit
+```
+
+**Smoke check** (headless, prints the parsed status):
+
+```sh
+nvim --headless --clean --cmd 'set rtp^=~/dev/nice-git.nvim' -c NiceGit \
+  -c "lua vim.wait(3000, function() return require('nice-git').state.status end); print(vim.inspect(require('nice-git').state.status))" \
+  -c 'qa!'
+```
+
+**Back to a normal install.** When you stop working on it, swap the runtimepath line for the
+`vim.pack.add` entry from [Install](#install-private-repository); it then follows committed changes
+through `:packupdate`.
+
 ## Notes
 
 - Nothing is stored on disk. Credentials always come from your git credential helper, SSH agent, or `gh`.
