@@ -363,6 +363,7 @@ function M.select(items, opts, on_choice)
   width = math.min(width, vim.o.columns - 4)
   local height = math.min(#lines, vim.o.lines - 6)
   local buf = scratch_buf(lines)
+  pcall(api.nvim_buf_set_name, buf, 'nice-git://menu') -- what the statusline shows while it has focus
   vim.bo[buf].modifiable = false
   local row, col = anchor(width, height)
   local win = api.nvim_open_win(buf, true, {

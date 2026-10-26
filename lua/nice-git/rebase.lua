@@ -222,6 +222,7 @@ local function open_float(base, root, commits)
   local buf = api.nvim_create_buf(false, true)
   vim.bo[buf].bufhidden = 'wipe'
   vim.bo[buf].filetype = 'nice-git-rebase'
+  pcall(api.nvim_buf_set_name, buf, 'nice-git://rebase')
   local width = 60
   for _, c in ipairs(commits) do
     width = math.max(width, 22 + #c.hash + api.nvim_strwidth(c.subject))
