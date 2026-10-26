@@ -2,7 +2,7 @@
 
 A Git interface for Neovim that works like VSCode's Source Control view: a panel you can click, full-file diffs you can edit, a commit graph, conflict resolution and interactive rebase. Everything works with the mouse, and every click also has a key.
 
-![Source Control panel next to the editor](docs/images/panel.png)
+<picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/panel.png"><img src="docs/images/panel-light.png" alt="Source Control panel next to the editor"></picture>
 
 ## Features
 
@@ -15,9 +15,11 @@ A Git interface for Neovim that works like VSCode's Source Control view: a panel
 
 | Side by side | Inline |
 |---|---|
-| ![Side-by-side diff](docs/images/diff.png) | ![Inline diff](docs/images/inline.png) |
-| **Commit graph** | **Interactive rebase** |
-| ![Commit graph](docs/images/history.png) | ![Rebase planner](docs/images/rebase.png) |
+| <picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/diff.png"><img src="docs/images/diff-light.png" alt="Side-by-side diff"></picture> | <picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/inline.png"><img src="docs/images/inline-light.png" alt="Inline diff"></picture> |
+| **Conflicts** | **Commit graph** |
+| <picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/conflict.png"><img src="docs/images/conflict-light.png" alt="Merge conflict with Accept buttons"></picture> | <picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/history.png"><img src="docs/images/history-light.png" alt="Commit graph"></picture> |
+| **Interactive rebase** | **Context menu** |
+| <picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/rebase.png"><img src="docs/images/rebase-light.png" alt="Rebase planner"></picture> | <picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/menu.png"><img src="docs/images/menu-light.png" alt="Context menu on a file"></picture> |
 
 ## Requirements
 

@@ -21,7 +21,7 @@ diff mode and cursor, and returns you to the tab you were in.
 
 ## Panel
 
-![Context menu on a file](images/menu.png)
+<picture><source media="(prefers-color-scheme: dark)" srcset="images/menu.png"><img src="images/menu-light.png" alt="Context menu on a file"></picture>
 
 The header holds the commit message box, a **Commit** button (its `▾` opens Commit (Amend), Commit All,
 Edit Last Commit Message and Stash All Changes), and the branch with fetch, pull and push icons. The title bar
@@ -63,11 +63,15 @@ as you type.
 
 ## Conflicts
 
+<picture><source media="(prefers-color-scheme: dark)" srcset="images/conflict.png"><img src="images/conflict-light.png" alt="Merge conflict with Accept Current, Accept Incoming and Accept Both buttons"></picture>
+
 Clicking a conflicted file (`!`) opens it with each conflict highlighted. Click **Accept Current**,
 **Accept Incoming** or **Accept Both** on the conflict's first line, or press `co` / `ct` / `cb` / `c0`
 (the last one keeps neither side). Then click **Mark Resolved**, and **Continue** in the panel header.
 
 ## History and rebase
+
+<picture><source media="(prefers-color-scheme: dark)" srcset="images/history.png"><img src="images/history-light.png" alt="Commit graph with colored branch lines"></picture>
 
 The graph draws each line of history in its own color, with branches, tags and remotes as labels.
 Click a commit to expand its files, and click a file to diff it. Right-click (or `m`) opens a menu with
