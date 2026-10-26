@@ -3,7 +3,7 @@
 Each item was tested headlessly with simulated input. These checks cover what that can't:
 the look in your terminal and font, a real mouse, and your own config and plugins.
 
-Setup: install from your local clone (see README), open a throwaway repo, and run `:NiceGit`.
+Setup: load your local clone (see [development.md](development.md)), open a throwaway repo, and run `:NiceGit`.
 Tick each box when it behaves as described. Anything that looks off is worth a note.
 
 ## Look
