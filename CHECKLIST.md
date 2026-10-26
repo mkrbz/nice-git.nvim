@@ -33,6 +33,11 @@ Tick each box when it behaves as described. Anything that looks off is worth a n
 - [ ] Discard on a tracked file asks, then restores it; on an untracked file it asks, then deletes it
 - [ ] Saving a file in another window, or running `git add` in a shell, updates the panel within a moment
 
+## Workspace toggle
+- [ ] With the panel, a diff and the history open, `:NiceGit toggle` closes all of them and leaves you in your editor tab
+- [ ] `:NiceGit toggle` again brings back the panel, the history tab and the diff (same file, mode and cursor), focused where you were
+- [ ] "Hide nice-git" in the panel's `⋯` menu does the same; with nothing hidden, the toggle opens the panel
+
 ## Toasts
 - [ ] Commit / push / errors show a small message bottom right that disappears by itself
 - [ ] Clicking a toast dismisses it; errors stay a bit longer

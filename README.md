@@ -85,10 +85,20 @@ While the panel is visible, `mousemoveevent` is switched on (and restored when i
 
 | Command | |
 |---|---|
-| `:NiceGit` | Toggle the Source Control panel |
+| `:NiceGit` | Toggle the Source Control panel in the current tab |
+| `:NiceGit toggle` | Hide the whole workspace (panels, diff tab, history tab) and bring it back exactly as it was |
 | `:NiceGit log` | Commit graph |
 | `:NiceGit blame` | Toggle the blame side panel for the current file |
 | `:NiceGit blame_line` | Toggle blame text on the cursor line |
+
+To flip between your code and nice-git with one key, map the workspace toggle, for example:
+
+```lua
+vim.keymap.set('n', '<leader>g', '<cmd>NiceGit toggle<cr>', { desc = 'nice-git' })
+```
+
+Hiding closes nice-git's windows and tabs but keeps their state; showing reopens them with the same file,
+diff mode and cursor, and returns you to the tab you were in.
 
 ## Panel
 

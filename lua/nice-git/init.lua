@@ -145,7 +145,7 @@ end
 
 function M.open(dir)
   M.with_root(function()
-    require('nice-git.sidebar').open_win()
+require('nice-git.sidebar').open_win()
     M.watch()
     M.refresh()
   end, dir)
@@ -155,6 +155,93 @@ end
 function M.switch_repo(path)
   vim.cmd.tcd(vim.fn.fnameescape(path))
   M.open(path)
+end
+
+-- What hide_workspace() put away: { panel_tabs, view, log, focus }.
+local hidden
+
+---Whether any part of nice-git is on screen: the panel in some tab, the diff tab or the graph.
+local function workspace_visible()
+  local sidebar = require('nice-git.sidebar')
+  for _, tab in ipairs(api.nvim_list_tabpages()) do
+    if sidebar.buf and sidebar.visible_in(tab) then
+      return true
+    end
+  end
+  return require('nice-git.diff').tab() ~= nil or require('nice-git.log').tab() ~= nil
+end
+
+---Closes every nice-git window (panel, diff tab, graph tab) and remembers them for show_workspace().
+function M.hide_workspace()
+  local sidebar, diff, log = require('nice-git.sidebar'), require('nice-git.diff'), require('nice-git.log')
+  local current = api.nvim_get_current_tabpage()
+  local view_tab, log_tab = diff.tab(), log.tab()
+  hidden = { panel_tabs = {}, view = diff.snapshot(), log = log.snapshot(), focus = current }
+  if current == view_tab then
+    hidden.focus = 'view'
+  elseif current == log_tab then
+    hidden.focus = 'log'
+  end
+  for _, tab in ipairs(api.nvim_list_tabpages()) do
+    if tab ~= view_tab and tab ~= log_tab and sidebar.buf and sidebar.visible_in(tab) then
+      table.insert(hidden.panel_tabs, tab)
+      sidebar.close_in(tab)
+    end
+  end
+  log.close()
+  diff.close_tab()
+  -- Land in the tab you were working in (or the one you were in before the nice-git tabs).
+  if type(hidden.focus) ~= 'string' and api.nvim_tabpage_is_valid(hidden.focus) then
+    api.nvim_set_current_tabpage(hidden.focus)
+  end
+end
+
+---Brings back everything hide_workspace() put away, as it was.
+function M.show_workspace()
+  local h = hidden
+  hidden = nil
+  if not h then
+    return M.open()
+  end
+  local origin = api.nvim_get_current_tabpage()
+  local function finish()
+    if h.focus == 'log' and require('nice-git.log').tab() then
+      api.nvim_set_current_tabpage(require('nice-git.log').tab())
+    elseif h.focus == 'view' and require('nice-git.diff').tab() then
+      api.nvim_set_current_tabpage(require('nice-git.diff').tab())
+    elseif type(h.focus) ~= 'string' and api.nvim_tabpage_is_valid(h.focus) then
+      api.nvim_set_current_tabpage(h.focus)
+    elseif api.nvim_tabpage_is_valid(origin) then
+      api.nvim_set_current_tabpage(origin)
+    end
+  end
+  M.with_root(function()
+    local sidebar = require('nice-git.sidebar')
+    for _, tab in ipairs(h.panel_tabs) do
+      if api.nvim_tabpage_is_valid(tab) then
+        api.nvim_set_current_tabpage(tab)
+        sidebar.open_win()
+      end
+    end
+    if h.log then
+      require('nice-git.log').show(h.log.cursor)
+    end
+    if h.view then
+      require('nice-git.diff').restore(h.view, finish)
+    else
+      finish()
+    end
+    M.refresh()
+  end)
+end
+
+---One switch for the whole workspace: hide it if any part is showing, otherwise bring it back.
+function M.toggle_workspace()
+  if workspace_visible() then
+    M.hide_workspace()
+  else
+    M.show_workspace()
+  end
 end
 
 function M.toggle()

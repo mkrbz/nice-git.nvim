@@ -13,6 +13,9 @@ local commands = {
   blame_line = function()
     require('nice-git.blame').toggle_line()
   end,
+  toggle = function()
+    require('nice-git').toggle_workspace()
+  end,
 }
 
 vim.api.nvim_create_user_command('NiceGit', function(opts)
