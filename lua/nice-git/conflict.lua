@@ -175,9 +175,13 @@ local function on_release()
   return '<LeftRelease>'
 end
 
-function M.attach(buf)
+---@param win? integer limit the decorations to this window (other windows on the buffer stay plain)
+function M.attach(buf, win)
   M.detach()
   M.buf = buf
+  if win then
+    api.nvim__ns_set(ns, { wins = { win } })
+  end
   for lhs, pick in pairs(KEYS) do
     vim.keymap.set('n', lhs, function()
       local c = at_cursor()

@@ -682,8 +682,11 @@ local function show(view)
       end
     end,
   })
+  -- The new side is often your real file buffer; keep the decorations to the diff panes so the
+  -- same file open in other windows looks normal.
+  api.nvim__ns_set(ns, { wins = lwin and { main, lwin } or { main } })
   if mode == 'conflict' then
-    require('nice-git.conflict').attach(rbuf)
+    require('nice-git.conflict').attach(rbuf, main)
   end
   set_toolbars()
   decorate()
